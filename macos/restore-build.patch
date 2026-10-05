@@ -1,0 +1,472 @@
+--- a/src/idevicerestore.c
++++ b/src/idevicerestore.c
+@@ -285,6 +285,10 @@
+ void irecv_event_cb(const irecv_device_event_t* event, void *userdata)
+ {
+ 	struct idevicerestore_client_t *client = (struct idevicerestore_client_t*)userdata;
++	/* Ignore every other model, including devices hot-plugged during restore. */
++	if (!event->device_info || event->device_info->cpid != 0x8900 || event->device_info->bdid != 0) {
++		return;
++	}
+ 	if (event->type == IRECV_DEVICE_ADD) {
+ 		if (!client->udid && !client->ecid) {
+ 			client->ecid = event->device_info->ecid;
+@@ -372,7 +376,51 @@
+ 	info("Found device in %s mode\n", client->mode->string);
+ 	mutex_unlock(&client->device_event_mutex);
+ 
++	/* In particular, a dry run must never upload the WTF bootstrap. */
++	if (client->flags & FLAG_NOACTION) {
++		info("No-action requested; leaving the device untouched.\n");
++		return 0;
++	}
++
+ 	if (client->mode == MODE_WTF) {
++		/* Validate the firmware before even opening the bootstrap transport. */
++		plist_t target_restore = NULL;
++		if (!client->ipsw || ipsw_extract_restore_plist(client->ipsw, &target_restore) < 0 || !target_restore) {
++			error("ERROR: WTF bootstrap requires the selected IPSW's Restore.plist.\n");
++			if (target_restore) plist_free(target_restore);
++			return -1;
++		}
++		plist_t product = plist_dict_get_item(target_restore, "ProductType");
++		if (!product || plist_get_node_type(product) != PLIST_STRING ||
++		    plist_string_val_compare(product, "iPhone1,1") != 0) {
++			error("ERROR: Refusing a WTF bootstrap from firmware for another product.\n");
++			plist_free(target_restore);
++			return -1;
++		}
++		/* Use only a board explicitly mapped by this same firmware. Early
++		 * releases map the generic boot-ROM stage; 3.1.3 maps m68ap. */
++		const char *wtf_board = NULL;
++		plist_t device_map = plist_dict_get_item(target_restore, "DeviceMap");
++		if (device_map && plist_get_node_type(device_map) == PLIST_ARRAY) {
++			for (uint32_t i = 0; i < plist_array_get_size(device_map); i++) {
++				plist_t entry = plist_array_get_item(device_map, i);
++				plist_t board = plist_dict_get_item(entry, "BoardConfig");
++				if (!board || plist_get_node_type(board) != PLIST_STRING) continue;
++				if (plist_string_val_compare(board, "s5l8900xall") == 0) {
++					wtf_board = "s5l8900xall";
++					break;
++				}
++				if (plist_string_val_compare(board, "m68ap") == 0) wtf_board = "m68ap";
++			}
++		}
++		char wtfname[256];
++		if (!wtf_board) {
++			error("ERROR: Target Restore.plist has no iPhone2G WTF DeviceMap entry.\n");
++			plist_free(target_restore);
++			return -1;
++		}
++		snprintf(wtfname, sizeof(wtfname), "Firmware/dfu/WTF.%s.RELEASE.dfu", wtf_board);
++		plist_free(target_restore);
+ 		unsigned int cpid = 0;
+ 
+ 		if (dfu_client_new(client) != 0) {
+@@ -385,57 +433,22 @@
+ 			return -1;
+ 		}
+ 
+-		char wtfname[256];
+-		sprintf(wtfname, "Firmware/dfu/WTF.s5l%04xxall.RELEASE.dfu", cpid);
++		if (cpid != 0x8900) {
++			error("ERROR: iPhone2Gkit refuses non-iPhone2G WTF devices.\n");
++			dfu_client_free(client);
++			return -1;
++		}
++
++		/* The exact target path was selected from Restore.plist above. */
+ 		unsigned char* wtftmp = NULL;
+ 		size_t wtfsize = 0;
+ 
+ 		// Prefer to get WTF file from the restore IPSW
+ 		ipsw_extract_to_memory(client->ipsw, wtfname, &wtftmp, &wtfsize);
+ 		if (!wtftmp) {
+-			// update version data (from cache, or apple if too old)
+-			load_version_data(client);
+-
+-			// Download WTF IPSW
+-			char* s_wtfurl = NULL;
+-			plist_t wtfurl = plist_access_path(client->version_data, 7, "MobileDeviceSoftwareVersionsByVersion", "5", "RecoverySoftwareVersions", "WTF", "304218112", "5", "FirmwareURL");
+-			if (wtfurl && (plist_get_node_type(wtfurl) == PLIST_STRING)) {
+-				plist_get_string_val(wtfurl, &s_wtfurl);
+-			}
+-			if (!s_wtfurl) {
+-				info("Using hardcoded x12220000_5_Recovery.ipsw URL\n");
+-				s_wtfurl = strdup("http://appldnld.apple.com.edgesuite.net/content.info.apple.com/iPhone/061-6618.20090617.Xse7Y/x12220000_5_Recovery.ipsw");
+-			}
+-
+-			// make a local file name
+-			char* fnpart = strrchr(s_wtfurl, '/');
+-			if (!fnpart) {
+-				fnpart = (char*)"x12220000_5_Recovery.ipsw";
+-			} else {
+-				fnpart++;
+-			}
+-			struct stat fst;
+-			char wtfipsw[1024];
+-			if (client->cache_dir) {
+-				if (stat(client->cache_dir, &fst) < 0) {
+-					mkdir_with_parents(client->cache_dir, 0755);
+-				}
+-				strcpy(wtfipsw, client->cache_dir);
+-				strcat(wtfipsw, "/");
+-				strcat(wtfipsw, fnpart);
+-			} else {
+-				strcpy(wtfipsw, fnpart);
+-			}
+-			if (stat(wtfipsw, &fst) != 0) {
+-				download_to_file(s_wtfurl, wtfipsw, 0);
+-			}
+-
+-			ipsw_archive_t wtf_ipsw = ipsw_open(wtfipsw);
+-			ipsw_extract_to_memory(wtf_ipsw, wtfname, &wtftmp, &wtfsize);
+-			ipsw_close(wtf_ipsw);
+-			if (!wtftmp) {
+-				error("ERROR: Could not extract WTF\n");
+-			}
++			error("ERROR: Target IPSW lacks its mapped WTF bootstrap; refusing a substitute.\n");
++			dfu_client_free(client);
++			return -1;
+ 		}
+ 
+ 		mutex_lock(&client->device_event_mutex);
+@@ -471,7 +484,14 @@
+ 		error("ERROR: Unable to discover device type\n");
+ 		return -1;
+ 	}
+-	if (client->ecid == 0 && client->mode != MODE_WTF) {
++	if (client->device->chip_id != 0x8900 || client->device->board_id != 0 ||
++	    strcmp(client->device->product_type, "iPhone1,1") != 0) {
++		error("ERROR: iPhone2Gkit restores only iPhone1,1 (m68ap).\n");
++		return -1;
++	}
++	/* iPhone2G has no ECID. Old WTF descriptors may infer CPID/BDID;
++	 * the app also requires physical model confirmation and a sole USB device. */
++	if (client->ecid == 0 && client->mode != MODE_WTF && client->device->chip_id != 0x8900) {
+ 		error("ERROR: Unable to determine ECID\n");
+ 		return -1;
+ 	}
+--- a/src/normal.c
++++ b/src/normal.c
+@@ -35,6 +35,22 @@
+ #include <idevicerestore/normal.h>
+ #include <idevicerestore/recovery.h>
+ 
++/* Read identity before choosing a normal-mode device; no pairing/state change. */
++static int normal_is_iphone2g(lockdownd_client_t lockdown)
++{
++	plist_t product = NULL;
++	char *name = NULL;
++	int accepted = 0;
++	if (lockdownd_get_value(lockdown, NULL, "ProductType", &product) == LOCKDOWN_E_SUCCESS &&
++	    product && plist_get_node_type(product) == PLIST_STRING) {
++		plist_get_string_val(product, &name);
++		accepted = name && strcmp(name, "iPhone1,1") == 0;
++	}
++	free(name);
++	if (product) plist_free(product);
++	return accepted;
++}
++
+ static int normal_idevice_new(struct idevicerestore_client_t* client, idevice_t* device)
+ {
+ 	int num_devices = 0;
+@@ -67,6 +83,11 @@
+ 			return -1;
+ 		}
+ 		free(type);
++		if (!normal_is_iphone2g(lockdown)) {
++			lockdownd_client_free(lockdown);
++			idevice_free(dev);
++			return -1;
++		}
+ 		if (lockdownd_get_value(lockdown, NULL, "UniqueChipID", &node) == LOCKDOWN_E_SUCCESS) {
+ 			plist_get_uint_val(node, &client->ecid);
+ 			plist_free(node);
+@@ -112,13 +133,21 @@
+ 			continue;
+ 		}
+ 		free(type);
++		if (!normal_is_iphone2g(lockdown)) {
++			lockdownd_client_free(lockdown);
++			lockdown = NULL;
++			idevice_free(dev);
++			dev = NULL;
++			continue;
++		}
+ 
+ 		node = NULL;
+ 		if ((lockdownd_get_value(lockdown, NULL, "UniqueChipID", &node) != LOCKDOWN_E_SUCCESS) || !node || (plist_get_node_type(node) != PLIST_UINT)){
+ 			if (node) {
+ 				plist_free(node);
+ 			}
+-			continue;
++			/* iPhone OS 1 does not expose UniqueChipID; model is already checked. */
++			node = plist_new_uint(0);
+ 		}
+ 		lockdownd_client_free(lockdown);
+ 		lockdown = NULL;
+--- a/src/dfu.c
++++ b/src/dfu.c
+@@ -58,6 +58,13 @@
+ 		return -1;
+ 	}
+ 
++	const struct irecv_device_info *target_info = irecv_get_device_info(dfu);
++	if (!target_info || target_info->cpid != 0x8900 || target_info->bdid != 0) {
++		error("ERROR: Refusing a non-iPhone2G USB device before any transfer.\n");
++		irecv_close(dfu);
++		return -1;
++	}
++
+ 	irecv_event_subscribe(dfu, IRECV_PROGRESS, &dfu_progress_callback, NULL);
+ 	client->dfu->client = dfu;
+ 	return 0;
+@@ -83,7 +90,7 @@
+ 	irecv_error_t dfu_error = IRECV_E_SUCCESS;
+ 	irecv_device_t device = NULL;
+ 
+-	irecv_init();
++	/* libirecovery 1.3.1 initializes automatically. */
+ 	if (irecv_open_with_ecid_and_attempts(&dfu, client->ecid, 10) != IRECV_E_SUCCESS) {
+ 		return NULL;
+ 	}
+--- a/src/recovery.c
++++ b/src/recovery.c
+@@ -88,6 +88,13 @@
+ 		debug("Retrying connection...\n");
+ 	}
+ 
++	const struct irecv_device_info *target_info = irecv_get_device_info(recovery);
++	if (!target_info || target_info->cpid != 0x8900 || target_info->bdid != 0) {
++		error("ERROR: Refusing a non-iPhone2G USB device before any transfer.\n");
++		irecv_close(recovery);
++		return -1;
++	}
++
+ 	if (client->srnm == NULL) {
+ 		const struct irecv_device_info *device_info = irecv_get_device_info(recovery);
+ 		if (device_info && device_info->srnm) {
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -396,109 +396,77 @@
+ 
+ static int restore_is_current_device(struct idevicerestore_client_t* client, const char* udid)
+ {
+-	if (!client) {
++	if (!client || !client->device || !udid ||
++	    client->device->chip_id != 0x8900 || client->device->board_id != 0 ||
++	    strcmp(client->device->product_type, "iPhone1,1") != 0) {
+ 		return 0;
+ 	}
+-	if (!client->ecid) {
+-		if (client->device && client->device->chip_id == 0x8900){
+-			/*
+-				iOS 1 restored doesn't tell us the device ECID, nor do we actually know it
+-			*/
+-			debug("%s: Skipping ECID check for 0x8900 device %s\n", __func__, udid);
+-			return 1;
+-		}else{
+-			error("ERROR: %s: no ECID given in client data\n", __func__);
+-			return 0;
+-		}		
+-	}
+-
+ 	idevice_t device = NULL;
+-	idevice_error_t device_error;
+ 	restored_client_t restored = NULL;
+-	restored_error_t restore_error;
++	plist_t hwinfo = NULL;
++	plist_t serial_node = NULL;
+ 	char *type = NULL;
++	char *serial = NULL;
+ 	uint64_t version = 0;
+-
+-	device_error = idevice_new(&device, udid);
+-	if (device_error != IDEVICE_E_SUCCESS) {
+-		debug("%s: can't open device with UDID %s\n", __func__, udid);
+-		return 0;
+-	}
+-
+-	restore_error = restored_client_new(device, &restored, "idevicerestore");
+-	if (restore_error != RESTORE_E_SUCCESS) {
+-		debug("%s: can't connect to restored\n", __func__);
+-		idevice_free(device);
+-		return 0;
+-	}
+-	restore_error = restored_query_type(restored, &type, &version);
+-	if ((restore_error == RESTORE_E_SUCCESS) && type && (strcmp(type, "com.apple.mobile.restored") == 0)) {
+-		debug("%s: Connected to %s, version %d\n", __func__, type, (int)version);
+-	} else {
+-		debug("%s: device %s is not in restore mode\n", __func__, udid);
+-		restored_client_free(restored);
+-		idevice_free(device);
+-		return 0;
+-	}
+-
+-	plist_t hwinfo = NULL;
+-	restore_error = restored_query_value(restored, "HardwareInfo", &hwinfo);
+-	if ((restore_error != RESTORE_E_SUCCESS) || !hwinfo) {
+-		error("ERROR: %s: Unable to get HardwareInfo from restored\n", __func__);
+-		restored_client_free(restored);
+-		idevice_free(device);
+-		plist_free(hwinfo);
+-		if (client->version && (client->version[0] == '1' || client->version[0] == '2')){
+-			/*
+-				This info isn't available pre-iOS 3, so whatever
+-				Just don't restore multiple pre-iOS 3 devices at once ;)
+-			*/
+-			debug("%s: pre-iOS 3 restore detected, continuing restore without ecid check!", __func__);
+-			return 1;
+-		}
+-		return 0;
+-	}
+-	restored_client_free(restored);
+-	idevice_free(device);
+-
+-	uint64_t this_cpid = (uint64_t)-1;
+-	uint64_t this_bdid = (uint64_t)-1;
+-	uint64_t this_ecid = (uint64_t)-1;
+-	plist_t node = NULL;
+-
+-	node = plist_dict_get_item(hwinfo, "ChipID");
+-	if (node && plist_get_node_type(node) == PLIST_UINT) {
+-		plist_get_uint_val(node, &this_cpid);
+-	}
+-
+-	node = plist_dict_get_item(hwinfo, "BoardID");
+-	if (node && plist_get_node_type(node) == PLIST_UINT) {
+-		plist_get_uint_val(node, &this_bdid);
+-	}
+-
+-	node = plist_dict_get_item(hwinfo, "UniqueChipID");
+-	if (node && plist_get_node_type(node) == PLIST_UINT) {
+-		plist_get_uint_val(node, &this_ecid);
+-	}
+-
+-	plist_free(hwinfo); hwinfo = NULL;
+-
+-	if (this_ecid == -1) {
+-		error("ERROR: %s: Unable to get ECID from restored\n", __func__);
+-		if (!client->version || (client->version[0] != '1' && client->version[0] != '2')) return 0;
+-		/*
+-			UniqueChipID isn't available pre-iOS 3, so whatever
+-			Just don't restore multiple pre-iOS 3 devices at once ;)
+-
+-			On iOS 2.1 0x8720 we do get CPID and BDID, so let's at least verify that
+-		*/
+-		if (this_cpid != -1 && this_cpid != client->device->chip_id)  return 0;
+-		if (this_bdid != -1 && this_bdid != client->device->board_id)  return 0;
+-		debug("%s: pre-iOS 3 restore detected, continuing restore without ecid check!", __func__);
+-		return 1;
+-	}
+-
+-	return (this_ecid == client->ecid);
++	uint64_t this_cpid = UINT64_MAX, this_bdid = UINT64_MAX, this_ecid = UINT64_MAX;
++	int matched = 0;
++
++	if (idevice_new(&device, udid) != IDEVICE_E_SUCCESS ||
++	    restored_client_new(device, &restored, "idevicerestore") != RESTORE_E_SUCCESS) {
++		goto cleanup;
++	}
++	if (restored_query_type(restored, &type, &version) != RESTORE_E_SUCCESS ||
++	    !type || strcmp(type, "com.apple.mobile.restored") != 0) {
++		goto cleanup;
++	}
++
++	/* Query identity even for ECID-less iPhone2G. Never accept an arbitrary
++	 * USBMUX UDID merely because the previously seen CPID was 0x8900. */
++	restored_error_t hardware_error = restored_query_value(restored, "HardwareInfo", &hwinfo);
++	int legacy_restore = version >= 7 && version <= 12 && client->version &&
++	    (client->version[0] == '1' || client->version[0] == '2');
++	if (hwinfo) {
++		if (plist_get_node_type(hwinfo) != PLIST_DICT) goto cleanup;
++		const char *keys[] = { "ChipID", "BoardID", "UniqueChipID" };
++		uint64_t *values[] = { &this_cpid, &this_bdid, &this_ecid };
++		for (int i = 0; i < 3; i++) {
++			plist_t node = plist_dict_get_item(hwinfo, keys[i]);
++			if (node) {
++				if (plist_get_node_type(node) != PLIST_UINT) goto cleanup;
++				plist_get_uint_val(node, values[i]);
++			}
++		}
++	}
++	if ((hardware_error != RESTORE_E_SUCCESS || !hwinfo) && !legacy_restore) goto cleanup;
++	if ((this_cpid != UINT64_MAX && this_cpid != 0x8900) ||
++	    (this_bdid != UINT64_MAX && this_bdid != 0) ||
++	    (this_ecid != UINT64_MAX && this_ecid != client->ecid)) {
++		goto cleanup;
++	}
++	if (!legacy_restore && (this_cpid == UINT64_MAX || this_bdid == UINT64_MAX)) {
++		goto cleanup;
++	}
++	if (client->ecid && this_ecid == UINT64_MAX) goto cleanup;
++
++	/* QueryType's cached reply often contains the serial even on old firmware.
++	 * If both stages report it, it must match the serial seen before booting. */
++	if (restored_get_value(restored, "SerialNumber", &serial_node) == RESTORE_E_SUCCESS && serial_node) {
++		if (plist_get_node_type(serial_node) != PLIST_STRING) goto cleanup;
++		plist_get_string_val(serial_node, &serial);
++		if (client->srnm && serial && strcmp(client->srnm, serial) != 0) goto cleanup;
++	}
++	if (legacy_restore && (this_cpid == UINT64_MAX || this_bdid == UINT64_MAX)) {
++		debug("%s: legacy restored lacks full hardware identity; app requires a sole physically confirmed iPhone2G.\n", __func__);
++	}
++	matched = 1;
++cleanup:
++	free(type);
++	free(serial);
++	if (serial_node) plist_free(serial_node);
++	if (hwinfo) plist_free(hwinfo);
++	if (restored) restored_client_free(restored);
++	if (device) idevice_free(device);
++	return matched;
+ }
+ 
+ int restore_open_with_timeout(struct idevicerestore_client_t* client)
+@@ -4284,7 +4252,7 @@
+         }
+         info("%s (%d) ...",restore_progress_string(GET_STAGE(*v7_restore_stage)),GET_NUM(*v7_restore_stage));
+         fflush(stdout);
+-        return 0;
++        return err;
+     }else if (!plist_string_val_compare(p_response, "Complete")) {
+ 
+         p_status = plist_dict_get_item(message, "Status");
+@@ -4506,6 +4474,14 @@
+ 
+ 	restore = client->restore->client;
+ 	device = client->restore->device;
++
++	/* The v7 state machine always repartitions and flashes the baseband. */
++	if (client->restore->protocol_version == 7 &&
++	    (!(client->flags & FLAG_ERASE) || (client->flags & FLAG_EXCLUDE))) {
++		error("ERROR: Protocol 7 supports only full erase restores including baseband.\n");
++		restore_client_free(client);
++		return -1;
++	}
+ 
+ 	restore_error = restored_query_value(restore, "HardwareInfo", &hwinfo);
+ 	if (restore_error == RESTORE_E_SUCCESS) {
+@@ -4743,8 +4719,18 @@
+ 	}
+ 	plist_dict_set_item(opts, "SystemPartitionPadding", spp);
+ 
+-	// start the restore process
+-	restore_error = restored_start_restore(restore, opts, client->restore->protocol_version);
++	// Protocol 7 is operation-oriented; StartRestore is an incompatible request.
++	if (client->restore->protocol_version == 7) {
++		plist_t initial = plist_new_dict();
++		plist_dict_set_item(initial, "Operation", plist_new_string("WaitPath"));
++		plist_dict_set_item(initial, "Path", plist_new_string("/dev/disk0"));
++		plist_dict_set_item(initial, "WaitDelay", plist_new_uint(3));
++		plist_dict_set_item(initial, "WaitLimit", plist_new_uint(0x7fffffff));
++		restore_error = restored_send(restore, initial);
++		plist_free(initial);
++	} else {
++		restore_error = restored_start_restore(restore, opts, client->restore->protocol_version);
++	}
+ 	if (restore_error != RESTORE_E_SUCCESS) {
+ 		error("ERROR: Unable to start the restore process\n");
+ 		plist_free(opts);

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key><string>iPhone2Gkit</string>
+	<key>CFBundleDisplayName</key><string>iPhone2Gkit</string>
+	<key>CFBundleIdentifier</key><string>local.iphone2gkit.app</string>
+	<key>CFBundleExecutable</key><string>iPhone2Gkit</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>2.1.0</string>
+	<key>CFBundleVersion</key><string>7</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
+	<key>LSMinimumSystemVersion</key><string>13.0</string>
+	<key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+	<key>NSHighResolutionCapable</key><true/>
+	<key>NSHumanReadableCopyright</key><string>iPhone 2G / iPhone OS 1.0 toolkit</string>
+</dict>
+</plist>

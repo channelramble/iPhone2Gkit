@@ -1,0 +1,58 @@
+name: Linux package and offline validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixtures:
+        description: Private validation fixture release tag (leave empty for public builds)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build dependencies (release users do not need these)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential clang pkg-config autoconf automake libtool cmake curl \
+            libusb-1.0-0-dev libcurl4-openssl-dev zlib1g-dev libbz2-dev libssl-dev \
+            libudev-dev patchelf xvfb xauth zsh libx11-6 libxext6 libxft2 libxrender1 libfontconfig1
+      - name: Build public Linux package
+        run: bash linux/build-linux.sh --public
+      - name: Import private test data without putting it into the package
+        if: inputs.fixtures != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIXTURE_TAG: ${{ inputs.fixtures }}
+        run: |
+          gh release download "$FIXTURE_TAG" --pattern test-fixtures.zip --dir "$RUNNER_TEMP/fixtures"
+          python3 -m zipfile -e "$RUNNER_TEMP/fixtures/test-fixtures.zip" "$RUNNER_TEMP/fixtures/data"
+          python3 - <<'PY'
+          import os, pathlib, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'fixtures/data'
+          kit = root / 'kit-assets'
+          with zipfile.ZipFile(kit / 'iLiberty-portable/iLiberty/iLibertyRD.zip') as z:
+              (root / 'iLibertyRD.dat').write_bytes(z.read('iLibertyRD.dat'))
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('IOS1KIT_ASSETS=' + str(kit) + '\n')
+              f.write('IOS1KIT_HFS_BASE=' + str(root / 'iLibertyRD.dat') + '\n')
+              f.write('IPHONE2GKIT_FIXTURE_ROOT=' + str(root) + '\n')
+          PY
+      - name: Offline tests and GUI smoke test on Linux
+        run: bash linux/test-linux.sh
+      - name: Upload tested package and test evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: iPhone2Gkit-linux-x86_64
+          path: |
+            dist/iPhone2Gkit-linux-x86_64.tar.gz
+            dist/linux-test-report.txt
+            dist/linux-gui.png
+          if-no-files-found: error
+          retention-days: 14

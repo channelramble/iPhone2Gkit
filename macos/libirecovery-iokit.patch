@@ -1,0 +1,116 @@
+--- a/src/libirecovery.c
++++ b/src/libirecovery.c
+@@ -1522,7 +1522,9 @@
+ 
+ 		// Do the transfer
+ 		if (isUSBIn) {
+-			result = (*intf)->ReadPipeTO(intf, pipeRef, data, &size, timeout, timeout);
++			// IOKit rejects nonzero timeouts on interrupt pipes (IOUSBLib.h).
++			result = transferType == kUSBInterrupt ? (*intf)->ReadPipe(intf, pipeRef, data, &size) : (*intf)->ReadPipeTO(intf, pipeRef, data, &size, timeout, timeout);
++			if (result != kIOReturnSuccess || endpoint != 0x05) debug("USB read ep=0x%02x type=%u result=0x%08x bytes=%u\n", endpoint, transferType, result, size);
+ 			if (result != kIOReturnSuccess)
+ 				return IRECV_E_PIPE;
+ 			*transferred = size;
+@@ -1531,7 +1533,9 @@
+ 		}
+ 		else {
+ 			// IOUSBInterfaceClass::interfaceWritePipe (intf?, pipeRef==1, data, size=0x8000)
+-			result = (*intf)->WritePipeTO(intf, pipeRef, data, size, timeout, timeout);
++			// IOKit rejects nonzero timeouts on interrupt pipes (IOUSBLib.h).
++			result = transferType == kUSBInterrupt ? (*intf)->WritePipe(intf, pipeRef, data, size) : (*intf)->WritePipeTO(intf, pipeRef, data, size, timeout, timeout);
++			if (result != kIOReturnSuccess || endpoint != 0x05) debug("USB write ep=0x%02x type=%u result=0x%08x bytes=%u\n", endpoint, transferType, result, size);
+ 			if (result != kIOReturnSuccess)
+ 				return IRECV_E_PIPE;
+ 			*transferred = size;
+@@ -1591,7 +1595,9 @@
+ 
+ 		// Do the transfer
+ 		if (isUSBIn) {
+-			result = (*intf)->ReadPipeTO(intf, pipeRef, data, &size, timeout, timeout);
++			// IOKit rejects nonzero timeouts on interrupt pipes (IOUSBLib.h).
++			result = transferType == kUSBInterrupt ? (*intf)->ReadPipe(intf, pipeRef, data, &size) : (*intf)->ReadPipeTO(intf, pipeRef, data, &size, timeout, timeout);
++			if (result != kIOReturnSuccess || endpoint != 0x05) debug("USB read ep=0x%02x type=%u result=0x%08x bytes=%u\n", endpoint, transferType, result, size);
+ 			if (result != kIOReturnSuccess)
+ 				return IRECV_E_PIPE;
+ 			*transferred = size;
+@@ -1599,7 +1605,9 @@
+ 			return IRECV_E_SUCCESS;
+ 		}
+ 		else {
+-			result = (*intf)->WritePipeTO(intf, pipeRef, data, size, timeout, timeout);
++			// IOKit rejects nonzero timeouts on interrupt pipes (IOUSBLib.h).
++			result = transferType == kUSBInterrupt ? (*intf)->WritePipe(intf, pipeRef, data, size) : (*intf)->WritePipeTO(intf, pipeRef, data, size, timeout, timeout);
++			if (result != kIOReturnSuccess || endpoint != 0x05) debug("USB write ep=0x%02x type=%u result=0x%08x bytes=%u\n", endpoint, transferType, result, size);
+ 			if (result != kIOReturnSuccess)
+ 				return IRECV_E_PIPE;
+ 			*transferred = size;
+@@ -3276,10 +3284,9 @@
+ 		if (bytes != sizeof(legacyCMD)) return IRECV_E_UNKNOWN_ERROR;
+ #endif
+ 		char cmdstr[0x100] = {0};
+-		if (length & 0xf) {
+-			length &= ~0xf;
+-			length += 0x10;
+-		}
++		// Include the newline and NUL even at a 16-byte boundary.
++		if (length + 2 > sizeof(cmdstr)) return IRECV_E_INVALID_INPUT;
++		length = (length + 2 + 0xf) & ~0xf;
+ 		snprintf(cmdstr, sizeof(cmdstr), "%s\n",command);
+ 		legacyCMD cmd = {
+ 			MSG_SEND_COMMAND,
+@@ -3289,6 +3296,7 @@
+ 		};
+ 		if ((error = irecv_usb_interrupt_transfer(client, 0x04, (unsigned char*)&cmd, sizeof(cmd), &bytes, USB_TIMEOUT))) return error;
+ 		if ((error = irecv_usb_interrupt_transfer(client, 0x83, (unsigned char*)&cmd, sizeof(cmd), &bytes, USB_TIMEOUT))) return error;
++		debug("Legacy ACK code=0x%04x magic=0x%04x size=0x%x address=0x%x\n", cmd.cmdcode, cmd.magic, cmd.size, cmd.loadaddr);
+ 		if (cmd.cmdcode != MSG_ACK) return IRECV_E_UNKNOWN_ERROR;
+ 		if ((error = irecv_usb_interrupt_transfer(client, 0x02, (unsigned char*)cmdstr, length, &bytes, USB_TIMEOUT))) return error;
+ 		sleep(1); //go easy on this old device
+@@ -3538,7 +3546,7 @@
+ 	unsigned char dfu_xbuf[12] = {0xff, 0xff, 0xff, 0xff, 0xac, 0x05, 0x00, 0x01, 0x55, 0x46, 0x44, 0x10};
+ 	int dfu_crc = 1;
+ 	int packet_size = recovery_mode ? 0x8000 : 0x800;
+-	if (legacy_recovery_mode) packet_size = 0x200;
++	if (legacy_recovery_mode) packet_size = 0x4000;
+ 	if (!recovery_mode && (options & IRECV_SEND_OPT_DFU_SMALL_PKT)) {
+ 		packet_size = 0x40;
+ 		dfu_crc = 0;
+@@ -3569,6 +3577,7 @@
+ 		};
+ 		if ((error = irecv_usb_interrupt_transfer(client, 0x04, (unsigned char*)&cmd, sizeof(cmd), &bytes, USB_TIMEOUT))) return error;
+ 		if ((error = irecv_usb_interrupt_transfer(client, 0x83, (unsigned char*)&cmd, sizeof(cmd), &bytes, USB_TIMEOUT))) return error;
++		debug("Legacy ACK code=0x%04x magic=0x%04x size=0x%x address=0x%x\n", cmd.cmdcode, cmd.magic, cmd.size, cmd.loadaddr);
+ 		if (cmd.cmdcode != MSG_ACK) return IRECV_E_UNKNOWN_ERROR;
+ 	} else if (recovery_mode) {
+ 		error = irecv_usb_control_transfer(client, 0x41, 0, 0, 0, NULL, 0, USB_TIMEOUT);
+@@ -3617,7 +3626,7 @@
+ 
+ 		if (legacy_recovery_mode) {
+ 			// Use interrupt transfer for legacy devices
+-			error = irecv_usb_interrupt_transfer(client, 0x05, &buffer[i * packet_size], size, &bytes, USB_TIMEOUT);
++			error = irecv_usb_bulk_transfer(client, 0x05, &buffer[i * packet_size], size, &bytes, USB_TIMEOUT);
+ 		} else if (recovery_mode) {
+ 			// Use bulk transfer for recovery mode
+ 			error = irecv_usb_bulk_transfer(client, 0x04, &buffer[i * packet_size], size, &bytes, USB_TIMEOUT);
+@@ -3706,7 +3715,7 @@
+ 		}
+ 	}
+ 
+-	if (recovery_mode && length % 512 == 0) {
++	if (recovery_mode && !legacy_recovery_mode && length % 512 == 0) {
+ 		/* send a ZLP */
+ 		bytes = 0;
+ 		irecv_usb_bulk_transfer(client, 0x04, buffer, 0, &bytes, USB_TIMEOUT);
+@@ -3735,10 +3744,9 @@
+ 	}
+ 
+ 	if (legacy_recovery_mode) {
+-		irecv_reconnect(client, 0);
+ 		char cmdstr[0x100] = {0};
+-		snprintf(cmdstr, sizeof(cmdstr), "setenv filesize %d", (int)length);
+-		irecv_send_command(client, cmdstr);
++		snprintf(cmdstr, sizeof(cmdstr), "setenv filesize 0x%lx", length);
++		return irecv_send_command(client, cmdstr);
+ 	}
+ 
+ 	return IRECV_E_SUCCESS;
