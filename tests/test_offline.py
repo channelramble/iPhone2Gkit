@@ -230,6 +230,8 @@ class KitTests(unittest.TestCase):
 
 class StockKernelTests(unittest.TestCase):
     def test_stock_kernel_checksum(self):
+        if not os.path.isfile(RD.STOCK_KERNEL):
+            self.skipTest("Download the verified 1.0 IPSW to prepare its kernel first")
         self.assertEqual(RD.sha256(RD.STOCK_KERNEL), RD.STOCK_KERNEL_SHA)
 
     def test_boot_args_use_actual_ramdisk_size(self):
@@ -268,19 +270,23 @@ class SplitUploadTests(unittest.TestCase):
                     data = stream.read()
                 calls.append(("upload", address, data))
         disk = b"disk-data" * 512
+        kernel = b"mock-signed-kernel"
         with tempfile.TemporaryDirectory() as directory:
             blob = os.path.join(directory, "probe.bin")
+            kernel_path = os.path.join(directory, "kernel.dat")
+            with open(kernel_path, "wb") as stream:
+                stream.write(kernel)
             with open(blob, "wb") as stream:
                 stream.seek(RD.KERNEL_SLOT)
                 stream.write(disk)
             with open(blob + ".profile.sh", "w") as stream:
                 stream.write('RUN_ID="' + "a" * 32 + '"\n')
-            with patch.object(cli, "wait_recovery"), patch.object(cli, "describe_device"), patch.object(U, "wait_until_gone", return_value=True), patch.object(U, "wait_for_mode", return_value="normal"):
+            with patch.object(RD, "STOCK_KERNEL", kernel_path), patch.object(cli, "wait_recovery"), patch.object(cli, "describe_device"), patch.object(U, "wait_until_gone", return_value=True), patch.object(U, "wait_for_mode", return_value="normal"):
                 self.assertTrue(cli.run_ramdisk(Transport(), blob, "probe"))
         uploads = [call for call in calls if call[0] == "upload"]
         self.assertEqual([call[1] for call in uploads], [0x09990000, 0x09000000])
         self.assertEqual(uploads[0][2], disk)
-        self.assertEqual(__import__("hashlib").sha256(uploads[1][2]).hexdigest(), RD.STOCK_KERNEL_SHA)
+        self.assertEqual(uploads[1][2], kernel)
         self.assertIn(("command", 'setenv boot-args "' + RD.boot_args(len(disk)) + '"'), calls)
 
 

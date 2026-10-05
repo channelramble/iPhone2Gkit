@@ -184,7 +184,7 @@ struct SetupCard: View {
                     HStack {
                         Button("Use Other Kit…") { m.chooseKit() }
                         if !m.usingBuiltInKit && m.kitPath != nil {
-                            Button("Use Built-in") { m.useBuiltInKit() }
+                            Button(m.hasBuiltInKit ? "Use Built-in" : "Auto-detect Kit") { m.useBuiltInKit() }
                         }
                         Button("Re-check") { Task { await m.refreshSetup() } }
                         Button("Terminal Command…") { m.installCommandLineTool() }

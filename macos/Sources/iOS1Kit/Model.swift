@@ -182,6 +182,10 @@ final class Model: ObservableObject {
     }
 
     var usingBuiltInKit: Bool { kitPath?.contains("/Contents/Resources/kit-assets") ?? false }
+    var hasBuiltInKit: Bool {
+        guard let resources = Bundle.main.resourceURL else { return false }
+        return FileManager.default.fileExists(atPath: resources.appendingPathComponent("kit-assets").path)
+    }
 
     func useBuiltInKit() {
         userKit = nil

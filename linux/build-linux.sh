@@ -77,7 +77,7 @@ fetch https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-9.9p2.tar.gz 
     openssh-9.9p2.tar.gz 91aadb603e08cc285eddf965e1199d02585fa94d994d6cae5b41e1721e215673
 
 # Rebuild only when source checksums, patches or this recipe change.
-BUILD_KEY="$(sha256sum "$0" "$ROOT/macos/libirecovery-iokit.patch" "$ROOT/macos/restore-build.patch" "$ROOT/macos/recovery-console.c" | sha256sum | cut -d' ' -f1)"
+BUILD_KEY="$(sha256sum "$0" "$HERE/usbmuxd-plist.patch" "$ROOT/macos/libirecovery-iokit.patch" "$ROOT/macos/restore-build.patch" "$ROOT/macos/recovery-console.c" | sha256sum | cut -d' ' -f1)"
 if [ "$(cat "$V/build.key" 2>/dev/null || true)" != "$BUILD_KEY" ] || [ ! -x "$P/bin/idevicerestore" ] || [ ! -x "$P/bin/hfsplus" ]; then
     rm -rf "$V/build" "$P"
     mkdir -p "$V/build" "$P/lib/pkgconfig"
@@ -95,10 +95,10 @@ if [ "$(cat "$V/build.key" 2>/dev/null || true)" != "$BUILD_KEY" ] || [ ! -x "$P
         local package="$1"; shift
         echo "Building $package"
         (
-            cd "$V/build/$package"
-            ./configure --prefix="$P" --enable-shared --disable-static "$@"
-            make -j"$JOBS"
-            make install
+            cd "$V/build/$package" || exit 1
+            ./configure --prefix="$P" --enable-shared --disable-static "$@" || exit 1
+            make -j"$JOBS" || exit 1
+            make install || exit 1
         ) > "$V/build/$package.log" 2>&1 || { tail -60 "$V/build/$package.log" >&2; exit 1; }
     }
     configure_build libusb-1.0.29 --disable-udev
@@ -107,10 +107,10 @@ if [ "$(cat "$V/build.key" 2>/dev/null || true)" != "$BUILD_KEY" ] || [ ! -x "$P
     patch -d "$V/build/libirecovery-1.3.1" -p1 < "$ROOT/macos/libirecovery-iokit.patch"
     configure_build libirecovery-1.3.1 --with-udevrulesdir="$P/share/udev/rules.d"
     (
-        cd "$V/build/openssl-3.5.4"
-        ./Configure linux-x86_64 shared no-module no-tests --prefix="$P" --libdir=lib --openssldir=/etc/ssl
-        make -j"$JOBS"
-        make install_sw
+        cd "$V/build/openssl-3.5.4" || exit 1
+        ./Configure linux-x86_64 shared no-module no-tests --prefix="$P" --libdir=lib --openssldir=/etc/ssl || exit 1
+        make -j"$JOBS" || exit 1
+        make install_sw || exit 1
     ) > "$V/build/openssl.log" 2>&1 || { tail -60 "$V/build/openssl.log" >&2; exit 1; }
     configure_build curl-8.10.1 --with-openssl="$P" --with-ca-bundle=/etc/ssl/certs/ca-certificates.crt \
         --with-zlib --without-libpsl --without-libidn2 --without-librtmp --without-libssh2 \
@@ -120,18 +120,21 @@ if [ "$(cat "$V/build.key" 2>/dev/null || true)" != "$BUILD_KEY" ] || [ ! -x "$P
     configure_build libtatsu-1.0.5
     configure_build libimobiledevice-1.4.0 --without-cython --without-readline --without-gnutls --without-mbedtls \
         --with-openssl --disable-wireless-pairing
+    # usbmuxd 1.1.1's private enum predates libplist's public format enum. Keep
+    # its original 0/1 values and rename only the private constants, not APIs.
+    patch -d "$V/build/usbmuxd-1.1.1" -p1 < "$HERE/usbmuxd-plist.patch"
     configure_build usbmuxd-1.1.1 --without-systemd --without-preflight --with-udevrulesdir="$P/share/udev/rules.d"
     cmake -S "$V/build/libzip-1.11.4" -B "$V/build/libzip-cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$P" \
         -DBUILD_SHARED_LIBS=ON -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_OSSFUZZ=OFF -DBUILD_EXAMPLES=OFF \
         -DBUILD_DOC=OFF -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF \
-        -DENABLE_OPENSSL=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF > "$V/build/libzip.log" 2>&1
-    cmake --build "$V/build/libzip-cmake" -j"$JOBS" >> "$V/build/libzip.log" 2>&1
-    cmake --install "$V/build/libzip-cmake" >> "$V/build/libzip.log" 2>&1
+        -DENABLE_OPENSSL=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF > "$V/build/libzip.log" 2>&1 || { tail -60 "$V/build/libzip.log" >&2; exit 1; }
+    cmake --build "$V/build/libzip-cmake" -j"$JOBS" >> "$V/build/libzip.log" 2>&1 || { tail -60 "$V/build/libzip.log" >&2; exit 1; }
+    cmake --install "$V/build/libzip-cmake" >> "$V/build/libzip.log" 2>&1 || { tail -60 "$V/build/libzip.log" >&2; exit 1; }
     (
-        cd "$V/build/idevicerestore-$RESTORE_COMMIT"
-        printf '%s\n' "iphone2gkit-$RESTORE_COMMIT" > .tarball-version
-        patch -p1 < "$ROOT/macos/restore-build.patch"
-        autoreconf -fi
+        cd "$V/build/idevicerestore-$RESTORE_COMMIT" || exit 1
+        printf '%s\n' "iphone2gkit-$RESTORE_COMMIT" > .tarball-version || exit 1
+        patch -p1 < "$ROOT/macos/restore-build.patch" || exit 1
+        autoreconf -fi || exit 1
     ) > "$V/build/idevicerestore-bootstrap.log" 2>&1 || { tail -60 "$V/build/idevicerestore-bootstrap.log" >&2; exit 1; }
     configure_build "idevicerestore-$RESTORE_COMMIT" --with-openssl
     # HFS-only target avoids xpwn's unrelated obsolete OpenSSL / USB code.
@@ -143,15 +146,15 @@ include_directories(${PROJECT_SOURCE_DIR}/includes)
 add_subdirectory(common)
 add_subdirectory(hfs)
 EOF
-    cmake -S "$V/build/xpwn-$XPWN_COMMIT" -B "$V/build/xpwn-cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-O2 -fcommon" > "$V/build/hfsplus.log" 2>&1
-    cmake --build "$V/build/xpwn-cmake" --target hfsplus -j"$JOBS" >> "$V/build/hfsplus.log" 2>&1
+    cmake -S "$V/build/xpwn-$XPWN_COMMIT" -B "$V/build/xpwn-cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-O2 -fcommon" > "$V/build/hfsplus.log" 2>&1 || { tail -60 "$V/build/hfsplus.log" >&2; exit 1; }
+    cmake --build "$V/build/xpwn-cmake" --target hfsplus -j"$JOBS" >> "$V/build/hfsplus.log" 2>&1 || { tail -60 "$V/build/hfsplus.log" >&2; exit 1; }
     cp "$V/build/xpwn-cmake/hfs/hfsplus" "$P/bin/hfsplus"
     # Host-key generation for the optional phone OpenSSH pack; no host OpenSSH needed.
     (
-        cd "$V/build/openssh-9.9p2"
-        ./configure --prefix="$P" --with-ssl-dir="$P" --without-pam --without-selinux
-        make -j"$JOBS" ssh-keygen
-        cp ssh-keygen "$P/bin/ssh-keygen"
+        cd "$V/build/openssh-9.9p2" || exit 1
+        ./configure --prefix="$P" --with-ssl-dir="$P" --without-pam --without-selinux || exit 1
+        make -j"$JOBS" ssh-keygen || exit 1
+        cp ssh-keygen "$P/bin/ssh-keygen" || exit 1
     ) > "$V/build/ssh-keygen.log" 2>&1 || { tail -60 "$V/build/ssh-keygen.log" >&2; exit 1; }
     cc -O2 $(pkg-config --cflags libirecovery-1.0) "$ROOT/macos/recovery-console.c" \
         $(pkg-config --libs libirecovery-1.0) -o "$P/bin/ios1kit-recovery-console"
@@ -204,7 +207,7 @@ cp -a "$V/python-notices/licenses" "$R/ThirdPartyLicenses/python-standalone"
 cp "$V/python-notices/PYTHON.json" "$R/ThirdPartyLicenses/python-standalone/BUILD-RECORD.json"
 cp "$V/src/tk-9.0.4-license.terms" "$R/ThirdPartyLicenses/python-standalone/LICENSE.tk.txt"
 cp "$ROOT/macos/libirecovery-iokit.patch" "$ROOT/macos/restore-build.patch" \
-    "$ROOT/macos/recovery-console.c" "$HERE/build-linux.sh" "$R/ThirdPartySources/"
+    "$ROOT/macos/recovery-console.c" "$HERE/build-linux.sh" "$HERE/usbmuxd-plist.patch" "$R/ThirdPartySources/"
 for package in "$V/build/"*/; do
     directory="$R/ThirdPartyLicenses/$(basename "$package")"
     for license in "$package"COPYING* "$package"LICENSE* "$package"LICENCE* "$package"AUTHORS*; do

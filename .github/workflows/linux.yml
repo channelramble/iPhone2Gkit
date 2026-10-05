@@ -20,7 +20,7 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: linux/vendor
-          key: ubuntu22-linux-native-${{ hashFiles('linux/build-linux.sh', 'macos/*.patch', 'macos/recovery-console.c') }}
+          key: ubuntu22-linux-native-${{ hashFiles('linux/build-linux.sh', 'linux/*.patch', 'macos/*.patch', 'macos/recovery-console.c') }}
       - name: Build dependencies (release users do not need these)
         run: |
           sudo apt-get update -qq
@@ -62,3 +62,13 @@ jobs:
             dist/linux-gui.png
           if-no-files-found: error
           retention-days: 14
+      - name: Retain compiler diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-failure-diagnostics
+          path: |
+            linux/vendor/build/*.log
+            dist/linux-test-report.txt
+          if-no-files-found: ignore
+          retention-days: 7

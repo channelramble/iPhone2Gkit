@@ -71,9 +71,9 @@ def sha256(path):
 def check_assets(kit):
     problems = []
     if not os.path.isfile(STOCK_KERNEL) or sha256(STOCK_KERNEL) != STOCK_KERNEL_SHA:
-        problems.append("missing or invalid bundled iPhone OS 1.0 kernel")
+        problems.append("iPhone OS 1.0 kernel not prepared; prepare 1.0 resources first")
     if not os.path.isfile(PLUTIL) or sha256(PLUTIL) != PLUTIL_SHA:
-        problems.append("missing or invalid bundled iPhone plist converter")
+        problems.append("iPhone plist converter not prepared; import a kit and prepare 1.0 resources")
     for rel, want in ASSETS.items():
         p = os.path.join(kit, rel)
         if not os.path.isfile(p):
