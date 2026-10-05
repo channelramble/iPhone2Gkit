@@ -5,7 +5,7 @@ A native **macOS app** and a **Linux desktop app/CLI** for the original iPhone
 activation, the 2007‑era apps, and a Launcher home screen — with no Windows XP,
 iTunes, or iLiberty.
 
-> **Status — experimental preview (v2.1.0‑beta.1).** Activation and app install
+> **Status — experimental preview (v2.2.0‑beta.1).** Activation and app install
 > are proven on a real phone. The **restore/downgrade feature has only been
 > tested offline**; it erases the phone and can leave it stuck in recovery/DFU,
 > so treat it as experimental. How it works and exactly what's verified:
@@ -17,7 +17,7 @@ Grab the latest build from **[Releases »](https://github.com/channelramble/iPho
 
 | Platform | File | Requirements |
 |---|---|---|
-| macOS | `iPhone2Gkit-macos-arm64.zip` | Apple Silicon, macOS 13+ |
+| macOS | `iPhone2Gkit-macos-universal.zip` | Intel or Apple Silicon, macOS 12 Monterey+ |
 | Linux | `iPhone2Gkit-linux-x86_64.tar.gz` | x86_64, Ubuntu 22.04+ / glibc 2.35+, X11 or XWayland |
 
 No Homebrew, system Python, iTunes, or XP needed — each package carries its own
@@ -34,13 +34,18 @@ Security → Open Anyway** ([Apple guidance](https://support.apple.com/en-us/102
 arguments to use the CLI, e.g. `./iPhone2Gkit/iphone2gkit restore-info`. USB
 permissions/setup: [linux/README.md](linux/README.md).
 
+Click **Download Setup Files** once. The app downloads and checks everything
+needed for 1.0 app installation (about 115 MB including stock firmware), then
+shows the app list. You don't need to find a kit folder. For a phone already
+running 1.0, start with **Check phone**, select your apps, then **Install**.
+
 ## What it does
 
 - **Restore / downgrade** (*Restore* tab) — stock **3.1.3, 1.0, 1.1.1, 1.1.3**,
   or a custom iPhone1,1 IPSW. Download & verify firmware in‑app, inspect the
   plan, then erase & restore behind explicit confirmations. *Experimental.*
-- **iPhone OS 1.0 setup** (*1.0 Apps* tab) — activate 1.0 and install the
-  2007‑era app packs imported from your own historical kit.
+- **iPhone OS 1.0 setup** — activate 1.0 and install the historical app packs.
+  Every app shows whether its bundled build is verified as a 2007 original.
 - **Launcher** — 1.0 has a single home screen, so **Show Launcher** makes
   Launcher + Finder reachable to open everything you installed.
 
@@ -55,8 +60,8 @@ permissions/setup: [linux/README.md](linux/README.md).
   "Earliest supported 1.x" only resolves when a known NAND ID is supplied —
   automatic NAND discovery isn't implemented yet — and 1.0 stays selectable
   behind a warning.
-- **Nothing copyrighted is redistributed.** Stock IPSWs download on first use;
-  the historical 2007 app packs come from your own imported kit.
+- Stock IPSWs download separately. Historical components retain their original
+  licenses; the project's MIT license applies to its original code.
 
 ## Troubleshooting
 

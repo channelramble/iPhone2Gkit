@@ -256,3 +256,42 @@ limited to its own `bin/` and system folders. Build artifacts go in
 The historical **iTunes 7 / Windows XP** route remains the kit's previously
 demonstrated 1.0 restoration method. The native 1.x path in this release is
 experimental and has not replaced that observed validation.
+
+## 12. Automatic setup and release validation (October 5, 2026)
+
+`iphone2gkit setup` is a host-only action: it never opens, reboots or restores a
+phone. `kit/legacy_assets.py` retrieves the pinned `kit-v1` GitHub setup archive
+(18,730,716 bytes; SHA-256
+`7c31a80daa67d61a913fdfee97145c99a540e7f30cdc30561d60ad33c0669207`).
+The bundled manifest checks the archive and every extracted member, including
+the exact allowed paths and sizes. It excludes stock IPSWs, the obsolete
+iLiberty kernel, ROMs, BIOS files and user data. The original historical
+components retain their own licenses.
+
+Setup stages and validates a complete kit, then atomically switches the managed
+`kit-assets` symlink. A lock prevents concurrent publication, and cancellation
+cannot delete the active version. It imports the genuine plist converter and
+downloads the pinned 1.0 IPSW to extract the stock kernel locally. Existing
+kit-folder import remains available under Advanced.
+
+GUI contract: success is `{ready:true, verified:true, kit, apps:48,
+resource_version:"1"}`. Adopt the returned kit only after validating that
+report. `doctor --json` separately exposes `setup.ready`; do not infer it by
+matching English error messages. With `IOS1KIT_EVENTS=1`, progress is
+`@@{"event":"download","version":"kit" or "1.0","pct":0..100}`.
+Setup must use the managed, cancellable job runner.
+
+The MacBook completed a fresh setup, automatic kit discovery and builds of all
+42 app images without writing to the phone. Native Ubuntu 22.04 validation
+([run 37384973542](https://github.com/channelramble/iPhone2Gkit/actions/runs/37384973542))
+passed 195 tests with one expected skip (the historical Launcher PXL archive is
+not redistributed), first-run setup and all four firmware downloads, GUI
+initialization under Xvfb, and genuine probe/install HFS builds. These are host
+validation results, not evidence of a complete native phone restore.
+
+`release/test-macos.py` validates a specific signed universal ZIP on native
+Intel and Apple Silicon CI: every shipped Mach-O has both architectures and a
+deployment target no newer than 12.0; private Python extensions and USB tools
+run with a clean PATH; the GUI renders; fresh setup downloads and actual image
+builds succeed. This verifies Monterey deployment metadata, not a runtime test
+on macOS 12. Native CI uses macOS 15. Re-run against each changed release ZIP.
