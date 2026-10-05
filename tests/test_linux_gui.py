@@ -9,6 +9,8 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 MODULE = Path(__file__).resolve().parents[1] / "linux/gui.py"
 spec = importlib.util.spec_from_file_location("iphone2gkit_linux_gui", MODULE)
@@ -58,6 +60,71 @@ class ConsentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             gui.parse_reply({"code": 2, "output": [reply]})
         self.assertEqual(gui.parse_reply({"code": 0, "output": ["@@{}", reply]}), {"ok": True})
+
+
+class SetupReplyTests(unittest.TestCase):
+    def report(self, **changes):
+        return dict(ready=True, verified=True, kit="/tmp/managed-kit", resource_version="1", apps=48, **changes)
+
+    def reply(self, report, code=0, cancelled=False):
+        return {"code": code, "cancelled": cancelled, "output": ["@@{}", json.dumps(report)]}
+
+    def test_only_verified_successful_setup_is_accepted(self):
+        report = self.report()
+        self.assertEqual(gui.checked_setup_reply(self.reply(report)), report)
+        for changes in ({"ready": False}, {"verified": False}, {"kit": ""},
+                        {"resource_version": ""}, {"apps": 0}, {"apps": True}):
+            changed = dict(report, **changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                gui.checked_setup_reply(self.reply(changed))
+        for code, cancelled in ((1, False), (0, True)):
+            with self.assertRaises(ValueError):
+                gui.checked_setup_reply(self.reply(report, code, cancelled))
+
+    def test_missing_setup_is_readable_without_becoming_success(self):
+        report = {"ok": False, "problems": ["kit folder not found"], "kit": None, "setup": {"ready": False}}
+        self.assertEqual(gui.parse_doctor_reply(self.reply(report, 1)), report)
+        for changes in ({"ok": True}, {"setup": {"ready": "yes"}}, {"problems": "bad"}):
+            with self.assertRaises(ValueError):
+                gui.parse_doctor_reply(self.reply(dict(report, **changes), 1))
+        with self.assertRaises(ValueError):
+            gui.parse_doctor_reply(self.reply(report, 2))
+
+    def test_setup_ignores_manual_kit_and_never_starts_a_phone_job(self):
+        app = gui.Application.__new__(gui.Application)
+        app.runner = SimpleNamespace(busy=False)
+        app.closing, app.setup_ready = False, False
+        app.kit = Mock()
+        app.run, app.invalidate, app.refresh, app._save_settings = Mock(return_value=True), Mock(), Mock(), Mock()
+        self.assertTrue(app.setup_files())
+        args, callback = app.run.call_args.args
+        self.assertEqual(args, ["setup"])
+        self.assertEqual(app.run.call_args.kwargs, {"use_kit": False})
+        callback(self.reply(self.report()))
+        app.kit.set.assert_called_once_with("/tmp/managed-kit")
+        app._save_settings.assert_called_once()
+        app.refresh.assert_called_once()
+
+    def test_cancelled_setup_preserves_existing_kit_and_does_not_refresh(self):
+        app = gui.Application.__new__(gui.Application)
+        app.runner = SimpleNamespace(busy=False)
+        app.closing, app.setup_ready = False, False
+        app.kit = Mock()
+        app.run, app.invalidate, app.refresh, app._save_settings = Mock(return_value=True), Mock(), Mock(), Mock()
+        app.setup_files()
+        callback = app.run.call_args.args[1]
+        callback(self.reply(self.report(), cancelled=True))
+        app.kit.set.assert_not_called()
+        app._save_settings.assert_not_called()
+        app.refresh.assert_not_called()
+
+    def test_ready_or_busy_setup_cannot_launch_another_job(self):
+        for busy, ready in ((True, False), (False, True)):
+            app = gui.Application.__new__(gui.Application)
+            app.runner = SimpleNamespace(busy=busy)
+            app.closing, app.setup_ready, app.run = False, ready, Mock()
+            self.assertFalse(app.setup_files())
+            app.run.assert_not_called()
 
 
 class RunnerTests(unittest.TestCase):
@@ -220,32 +287,91 @@ class FakeRunner:
 class DesktopTests(unittest.TestCase):
     def setUp(self):
         import tkinter
+        self.settings = tempfile.TemporaryDirectory()
+        self.settings_patch = patch.object(gui, "config_path", return_value=Path(self.settings.name) / "settings.json")
+        self.settings_patch.start()
         self.root = tkinter.Tk()
         self.runner = FakeRunner()
         self.app = gui.Application(self.root, "/tmp/resources", self.runner)
         self.root.update()
 
     def tearDown(self):
-        self.root.destroy()
+        self.app._destroy()
+        self.settings_patch.stop()
+        self.settings.cleanup()
+
+    def finish(self, report, code=0, cancelled=False):
+        self.runner.busy = False
+        self.runner.events.put(("finished", {"code": code, "cancelled": cancelled, "output": [json.dumps(report)]}))
+        self.app.pump()
 
     def test_real_window_starts_without_any_phone_action(self):
         self.assertEqual(self.root.title(), "iPhone2Gkit")
         self.assertEqual(self.runner.started, [])
         self.assertIsNone(self.app.plan)
         self.assertEqual(str(self.app.erase_button["state"]), "disabled")
+        self.assertEqual(str(self.app.install_button["state"]), "disabled")
+        self.assertEqual(str(self.app.setup_button["state"]), "normal")
+        self.assertFalse(self.app.advanced_frame.winfo_ismapped())
+        self.assertFalse(self.app.ramdisk_spin.winfo_ismapped())
+        self.assertFalse(self.app.log.winfo_ismapped())
 
     def test_refresh_only_queries_information_and_does_not_duplicate_job(self):
         self.app.refresh()
         self.app.refresh()
-        self.assertEqual(self.runner.started, [["restore-info"]])
-        self.assertNotIn("restore", self.runner.started[0])
-        self.runner.busy = False
-        report = dict(identity={"product_type": "iPhone1,1", "serial": "TEST", "version": "1.0"},
+        self.assertEqual(self.runner.started, [["doctor", "--json"]])
+        self.finish({"ok": False, "problems": ["kit folder not found"], "kit": None, "setup": {"ready": False}}, code=1)
+        self.assertEqual(self.runner.started[-1], ["restore-info"])
+        report = dict(identity={"product_type": "iPhone1,1", "serial": "TEST", "version": "1.0", "mode": "recovery"},
                       transport={"message": "USB ready"}, recommendation={"reason": "Known 1.0"}, firmwares=[])
-        self.runner.events.put(("finished", {"code": 0, "cancelled": False, "output": [json.dumps(report)]}))
-        self.app.pump()
-        self.assertEqual(self.app.status.get(), "USB ready")
+        self.finish(report)
+        self.assertIn("recovery", self.app.status.get())
         self.assertEqual(str(self.app.erase_button["state"]), "disabled")
+        self.assertEqual(str(self.app.setup_button["state"]), "normal")
+        self.assertFalse(self.app.setup_ready)
+        self.assertFalse(any("setup" in args or "restore" in args or "probe" in args for args in self.runner.started))
+
+    def test_successful_setup_refreshes_and_loads_apps_without_manual_path(self):
+        self.app.setup_files()
+        self.assertEqual(self.runner.started, [["setup"]])
+        self.finish(SetupReplyTests().report())
+        prefix = ["--kit", "/tmp/managed-kit"]
+        self.assertEqual(self.runner.started[-1], prefix + ["doctor", "--json"])
+        self.finish({"ok": True, "problems": [], "kit": "/tmp/managed-kit", "setup": {"ready": True}})
+        self.assertEqual(self.runner.started[-1], prefix + ["restore-info"])
+        self.finish({"identity": {"mode": "recovery", "version": "1.0"}, "transport": {}, "firmwares": []})
+        self.assertEqual(self.runner.started[-1], prefix + ["list", "--json"])
+        self.finish([{"key": "launcher", "name": "Launcher", "in_apps": True, "era": {"label": "2007 archived"}}])
+        self.assertTrue(self.app.setup_ready)
+        self.assertEqual(str(self.app.setup_button["state"]), "disabled")
+        self.assertEqual(str(self.app.install_button["state"]), "normal")
+        self.assertEqual(self.app.selected, {"launcher"})
+        self.assertEqual(self.app.tree.item("launcher", "values")[-1], "2007 archived")
+        self.assertTrue(Path(self.settings.name, "settings.json").is_file())
+
+    def test_partial_setup_cannot_enable_install_or_replace_saved_path(self):
+        self.app.kit.set("/tmp/manual-kit")
+        self.app.setup_files()
+        self.assertEqual(self.runner.started, [["setup"]])
+        with patch("tkinter.messagebox.showerror") as error:
+            self.finish(dict(SetupReplyTests().report(), ready=False))
+        error.assert_called_once()
+        self.assertFalse(self.app.setup_ready)
+        self.assertEqual(self.app.kit.get(), "/tmp/manual-kit")
+        self.assertEqual(str(self.app.install_button["state"]), "disabled")
+        self.assertEqual(self.runner.started, [["setup"]])
+
+    def test_doctor_asset_failure_cannot_inherit_ready_state(self):
+        self.app.setup_ready = True
+        self.app.apply_doctor({"ok": False, "problems": ["payload damaged"], "kit": "/tmp/manual-kit", "setup": {"ready": True}})
+        self.assertFalse(self.app.setup_ready)
+        self.assertEqual(str(self.app.install_button["state"]), "disabled")
+
+    def test_recovery_instructions_remain_visible_with_advanced_closed(self):
+        self.app.event({"event": "need_recovery"})
+        self.assertIn("Hold Home", self.app.guidance.get())
+        self.assertFalse(self.app.advanced_frame.winfo_ismapped())
+        self.assertFalse(self.app.log.winfo_ismapped())
 
     def test_changing_target_invalidates_existing_plan(self):
         self.app.plan = ConsentTests().plan()

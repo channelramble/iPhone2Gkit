@@ -37,10 +37,35 @@ cd "$ROOT"
         ldd "$R/bin/$binary"
     done
     if [ "${IPHONE2GKIT_TEST_DOWNLOADS:-0}" = 1 ]; then
-        echo 'Opt-in: downloading and hash-verifying stock firmware into isolated user data.'
-        FETCH_ARGS=(fetch-firmware --target all)
-        if [ -n "$FIXTURES" ]; then FETCH_ARGS+=(--import-kit "$FIXTURES/kit-assets"); fi
-        "$APP/iphone2gkit" "${FETCH_ARGS[@]}"
+        echo 'Opt-in: testing first-run setup with no kit path and no phone actions.'
+        unset IOS1KIT_ASSETS IOS1KIT_HFS_BASE
+        "$APP/iphone2gkit" setup | tee "$WORK/setup-output.txt"
+        "$PY" -B - "$WORK/setup-output.txt" "$WORK/kit-path" <<'PY'
+import json, sys
+from pathlib import Path
+lines = Path(sys.argv[1]).read_text().splitlines()
+report = json.loads(next(line for line in reversed(lines) if not line.startswith('@@')))
+assert report['ready'] is True and report['verified'] is True and report['apps'] == 48
+assert Path(report['kit']).is_dir() and report['resource_version']
+Path(sys.argv[2]).write_text(report['kit'])
+print('First-run setup: verified and ready, 48 app packs.')
+PY
+        "$APP/iphone2gkit" doctor --json | tee "$WORK/doctor.json"
+        "$APP/iphone2gkit" list --json > "$WORK/apps.json"
+        "$PY" -B - "$WORK/doctor.json" "$WORK/apps.json" <<'PY'
+import json, sys
+from pathlib import Path
+doctor = json.loads(Path(sys.argv[1]).read_text())
+apps = json.loads(Path(sys.argv[2]).read_text())
+assert doctor['ok'] is True and doctor['setup']['ready'] is True
+assert len(apps) == 48 and sum(bool(app['in_apps']) for app in apps) == 42
+print('Default kit discovery: doctor and all 48 app packs verified.')
+PY
+        export IOS1KIT_ASSETS="$(cat "$WORK/kit-path")"
+        "$PY" -B -c 'import os, zipfile; from pathlib import Path; z=zipfile.ZipFile(Path(os.environ["IOS1KIT_ASSETS"])/"iLiberty-portable/iLiberty/iLibertyRD.zip"); Path(os.environ["HOME"]+"/base-hfs.img").write_bytes(z.read("iLibertyRD.dat"))'
+        export IOS1KIT_HFS_BASE="$HOME/base-hfs.img"
+        echo 'Downloading and hash-verifying all stock firmware for offline restore inspection tests.'
+        "$APP/iphone2gkit" fetch-firmware --target all
     fi
     # Test the same modules as source on a real Linux host, plus actual window init.
     xvfb-run -a "$PY" -B -m unittest discover -s tests -v
@@ -48,7 +73,7 @@ cd "$ROOT"
     # Headless CLI portability: no external Python and no reliance on cwd.
     ln -s "$APP/iphone2gkit" "$WORK/iphone2gkit-link"
     (cd /; "$WORK/iphone2gkit-link" --help >/dev/null; "$WORK/iphone2gkit-link" restore-info)
-    if [ -n "$FIXTURES" ]; then
+    if [ -n "${IOS1KIT_ASSETS:-}" ]; then
         "$APP/iphone2gkit" doctor --json
         "$APP/iphone2gkit" build --mode probe --out "$WORK/probe" --ramdisk-mb 14
         "$APP/iphone2gkit" build --out "$WORK/apps" --apps apps --ramdisk-mb 22

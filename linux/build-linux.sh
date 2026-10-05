@@ -174,6 +174,7 @@ find "$R/python" -name '__pycache__' -prune -exec rm -rf {} +
 cp "$ROOT/ios1kit" "$R/engine/ios1kit"
 cp "$ROOT"/kit/*.py "$ROOT/kit/installer.sh.in" "$ROOT/kit/homescreen.awk" "$R/engine/kit/"
 cp "$ROOT/kit/resources/pwnage2-wtf.patch" "$ROOT/kit/resources/PWNAGE-SOURCE-LICENSE.txt" "$R/engine/kit/resources/"
+cp "$ROOT/kit/resources/legacy-kit-manifest.json" "$R/engine/kit/resources/"
 if [ "$PUBLIC" = 0 ]; then
     cp "$ROOT/kit/resources/kernelcache-1.0.dat" "$ROOT/kit/resources/plutil-ios1" "$R/engine/kit/resources/"
     if [ -n "$KIT" ]; then
