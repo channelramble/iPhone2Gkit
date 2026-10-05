@@ -13,7 +13,13 @@ on:
         required: true
 
 permissions:
-  contents: read
+  # GitHub only exposes unpublished releases to users with repository write access.
+  # This manual workflow reads the candidate; it never publishes it.
+  contents: write
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   validate:
