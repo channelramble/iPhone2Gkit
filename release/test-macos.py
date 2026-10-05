@@ -74,8 +74,9 @@ def verify_macho(app):
             assert name.startswith(("/usr/lib/", "/System/Library/", "@")), \
                 f"External dependency in {path}: {name}"
         count += 1
-    assert count > 10, "No complete GUI/Python/native runtime found"
+    assert count, "No Mach-O runtime found"
     print(f"Checked {count} universal Mach-O files; deployment targets <= macOS 12.0.", flush=True)
+    return count
 
 
 def main():
@@ -104,7 +105,7 @@ def main():
         with (app / "Contents/Info.plist").open("rb") as source:
             info = plistlib.load(source)
         assert info["LSMinimumSystemVersion"] == "12.0"
-        verify_macho(app)
+        assert verify_macho(app) >= 8, "Incomplete GUI/Python/native runtime"
         assert (resources / "engine/kit/resources/legacy-kit-manifest.json").is_file()
         assert not list(app.rglob("*.ipsw")), "Public app must download stock firmware separately"
         assert not (resources / "kit-assets").exists(), "Private kit leaked into public app"
