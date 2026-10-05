@@ -74,6 +74,23 @@ struct DoctorReport: Decodable {
     let kit: String?
     let irecovery: String?
     let phone: String?
+    let setup: SetupStatus?
+}
+
+struct SetupReply: Decodable {
+    let ready: Bool
+    let verified: Bool?
+    let kit: String?
+    let apps: Int?
+    let resource_version: String?
+}
+
+struct SetupStatus: Decodable {
+    let ready: Bool
+    let verified: Bool?
+    let download_url: String?
+    let size: Int?
+    let resource_version: String?
 }
 
 struct PhoneStatus: Decodable {

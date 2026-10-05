@@ -8,7 +8,7 @@ struct iPhone2GkitApp: App {
         WindowGroup("iPhone2Gkit") {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 940, minHeight: 700)
+                .frame(minWidth: 940, idealWidth: 1080, minHeight: 700, idealHeight: 820)
                 .onAppear { model.start(); Snapshot.scheduleIfRequested(model) }
         }
         .commands {
@@ -22,8 +22,6 @@ struct iPhone2GkitApp: App {
                     .disabled(model.busy)
             }
         }
-        .windowResizability(.contentMinSize)
-        .defaultSize(width: 1080, height: 820)
     }
 }
 
@@ -77,6 +75,8 @@ struct ContentView: View {
             return "Use the Restore tab to inspect firmware and confirm erasure."
         case .download:
             return "Downloads and verifies firmware on the Mac. This does not contact or erase the phone."
+        case .setup:
+            return "Downloads and verifies the app's setup files. This does not contact the phone."
         }
     }
 
@@ -160,39 +160,56 @@ struct PhoneCard: View {
 struct SetupCard: View {
     @EnvironmentObject var m: Model
 
+    private var kitReady: Bool {
+        m.setupReady
+    }
+
     var body: some View {
         GroupBox(label: Label("Setup", systemImage: "gearshape")) {
-            VStack(alignment: .leading, spacing: 6) {
-                if !m.checkedSetup {
+            VStack(alignment: .leading, spacing: 8) {
+                if m.job == .setup {
+                    HStack { ProgressView().controlSize(.small); Text("Downloading setup files…") }
+                } else if !m.checkedSetup {
                     HStack { ProgressView().controlSize(.small); Text("Checking…") }
+                } else if !kitReady {
+                    Text("Download the setup files once (about 115 MB including firmware). Nothing is sent to the phone.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button { m.runSetup() } label: {
+                        Label("Download Setup Files", systemImage: "arrow.down.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(m.busy)
                 } else {
-                    row(ok: m.kitPath != nil && !m.problems.contains { $0.contains("kit") || $0.contains("checksum") || $0.contains("missing") },
-                        text: m.kitPath == nil ? "Kit files not found"
-                            : m.usingBuiltInKit ? "Kit: built in (verified)"
-                            : "Kit: " + (m.kitPath! as NSString).lastPathComponent)
-                    row(ok: m.irecovery != nil, text: m.irecovery.map { "USB: irecovery \($0), built in" } ?? "USB tool missing from the app")
-                    if m.kitPath == nil {
-                        Text("Restore firmware is downloaded in the Restore tab. The 1.0 app installer needs your historical kit folder.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else if !m.setupOK {
-                        Button("Prepare 1.0 Resources") { m.downloadFirmware("1.0") }
-                            .disabled(m.busy)
-                    }
-                    ForEach(m.problems.filter { !$0.contains("irecovery") && $0 != "kit folder not found" }, id: \.self) { p in
-                        Label(p, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.caption)
-                    }
-                    HStack {
-                        Button("Use Other Kit…") { m.chooseKit() }
+                    row(ok: true, text: m.usingBuiltInKit ? "Setup ready (built in)" : "Setup ready")
+                    row(ok: m.irecovery != nil,
+                        text: m.irecovery.map { "USB tool: irecovery \($0)" } ?? "USB tool missing")
+                }
+
+                ForEach(m.problems.filter {
+                    !$0.contains("irecovery") && !$0.contains("kit") && $0 != "kit folder not found"
+                }, id: \.self) { p in
+                    Label(p, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange).font(.caption)
+                }
+
+                DisclosureGroup("Advanced") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if kitReady { Button("Re-download Setup Files") { m.runSetup() } }
+                        Button("Use a Kit Folder…") { m.chooseKit() }
                         if !m.usingBuiltInKit && m.kitPath != nil {
-                            Button(m.hasBuiltInKit ? "Use Built-in" : "Auto-detect Kit") { m.useBuiltInKit() }
+                            Button(m.hasBuiltInKit ? "Use Built-in Kit" : "Auto-detect Kit") { m.useBuiltInKit() }
                         }
                         Button("Re-check") { Task { await m.refreshSetup() } }
-                        Button("Terminal Command…") { m.installCommandLineTool() }
+                        Button("Install Terminal Command…") { m.installCommandLineTool() }
                             .help("Installs `iphone2gkit` and the `ios1kit` alias in /usr/local/bin")
                     }
                     .controlSize(.small)
                     .disabled(m.busy)
+                    .padding(.top, 4)
                 }
+                .font(.caption)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
@@ -290,7 +307,7 @@ struct AppPicker: View {
                 VStack(spacing: 8) {
                     Spacer()
                     Image(systemName: "folder.badge.questionmark").font(.largeTitle).foregroundStyle(.secondary)
-                    Text(m.checkedSetup ? "Choose the kit folder to see the apps." : "Loading…").foregroundStyle(.secondary)
+                    Text(m.checkedSetup ? "Click Download Setup Files to see the apps." : "Loading…").foregroundStyle(.secondary)
                     Spacer()
                 }.frame(maxWidth: .infinity)
             } else {

@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 
 enum Job: String {
-    case probe, install, launcher, repair, kick, usbtest, restore, download
+    case probe, install, launcher, repair, kick, usbtest, restore, download, setup
     var title: String {
         switch self {
         case .probe: return "Check phone"
@@ -14,6 +14,7 @@ enum Job: String {
         case .usbtest: return "Test USB upload"
         case .restore: return "Restore iPhone"
         case .download: return "Download firmware"
+        case .setup: return "Download setup files"
         }
     }
 }
@@ -33,6 +34,8 @@ final class Model: ObservableObject {
     @Published var irecovery: String?
     @Published var problems: [String] = []
     @Published var checkedSetup = false
+    @Published var setupReady = false
+    private var lastSetupReply: SetupReply?
 
     // phone
     @Published var phone: String?            // "normal" | "recovery" | "dfu" | nil
@@ -66,7 +69,7 @@ final class Model: ObservableObject {
     private var uploading = false
     private var pollTimer: Timer?
 
-    var setupOK: Bool { checkedSetup && problems.isEmpty && kitPath != nil }
+    var setupOK: Bool { checkedSetup && setupReady && problems.isEmpty && kitPath != nil }
     var busy: Bool { job != nil }
     var selectedKB: Int { apps.filter { selected.contains($0.key) }.reduce(0) { $0 + $1.kb } }
 
@@ -86,11 +89,13 @@ final class Model: ObservableObject {
         let (_, data) = await Engine.capture(kitArgs + ["doctor", "--json"])
         guard let report = try? JSONDecoder().decode(DoctorReport.self, from: data) else {
             problems = ["The built-in engine did not start. Re-download iPhone2Gkit.app (it may be damaged)."]
+            setupReady = false
             checkedSetup = true
             return
         }
         irecovery = report.irecovery
         problems = report.problems
+        setupReady = report.setup?.ready == true
         kitPath = report.kit
         phone = report.phone
         checkedSetup = true
@@ -160,6 +165,12 @@ final class Model: ObservableObject {
         downloadTarget = version
         run(.download)
     }
+
+    /// One-time: download + verify the app's setup files via the engine's host-only
+    /// `setup` command (never touches the phone), then re-check and load apps.
+    /// One-time: download + verify the app's setup files. Runs as a managed,
+    /// cancellable job (Stop works) and validates the result via doctor.setup.ready.
+    func runSetup() { run(.setup) }
 
     /// Link /usr/local/bin/ios1kit to the command inside this app (asks for an admin password).
     func installCommandLineTool() {
@@ -248,6 +259,8 @@ final class Model: ObservableObject {
             if !activate { args.append("--no-activate") }
         case .kick:
             args += ["kick"]
+        case .setup:
+            args = ["setup"]   // host-only: downloads/verifies the kit, never contacts the phone
         case .usbtest:
             args += ["usbtest", "--out", Engine.buildDir.path]
         case .download:
@@ -270,7 +283,13 @@ final class Model: ObservableObject {
         outcome = nil
         progress = nil
         needRecovery = false
-        headline = which == .download ? "Downloading and verifying firmware…" : (which == .kick ? "Sending reboot…" : (which == .restore ? "Preparing restore…" : "Building ramdisk…"))
+        switch which {
+        case .setup: headline = "Downloading setup files…"
+        case .download: headline = "Downloading and verifying firmware…"
+        case .kick: headline = "Sending reboot…"
+        case .restore: headline = "Preparing restore…"
+        default: headline = "Building ramdisk…"
+        }
         detail = ""
         log += "\n$ iphone2gkit " + args.joined(separator: " ") + "\n"
 
@@ -324,6 +343,10 @@ final class Model: ObservableObject {
             }
             return
         }
+        if job == .setup, line.hasPrefix("{"), let d = line.data(using: .utf8),
+           let r = try? JSONDecoder().decode(SetupReply.self, from: d) {
+            lastSetupReply = r
+        }
         if uploading, let pct = Self.percent(in: line) {
             progress = min(1, pct / 100)
             if isProgressRedraw { return }    // don't flood the log with redraws
@@ -342,7 +365,7 @@ final class Model: ObservableObject {
     private func apply(_ ev: EngineEvent) {
         switch ev.event {
         case "download":
-            headline = "Downloading and verifying firmware…"
+            headline = job == .setup ? "Downloading setup files…" : "Downloading and verifying firmware…"
             progress = min(1, max(0, (ev.pct ?? 0) / 100))
             detail = "Saved locally. The phone is not contacted by this download."
         case "restore_phase":
@@ -417,6 +440,26 @@ final class Model: ObservableObject {
         uploading = false
         progress = nil
         needRecovery = false
+        if which == .setup {
+            headline = "Ready"; detail = ""
+            let reply = lastSetupReply; lastSetupReply = nil
+            if status == 130 { outcome = .failure("Setup download cancelled."); return }
+            if status != 0 { outcome = .failure("Could not download the setup files (exit \(status)). See the log."); return }
+            if reply?.ready == true && (reply?.verified ?? false) {
+                // Verified: adopt the downloaded kit by dropping any manual override.
+                outcome = .success("Setup files downloaded and verified. You're ready to go.")
+                Task {
+                    userKit = nil
+                    UserDefaults.standard.removeObject(forKey: "userKitPath")
+                    apps = []
+                    await refreshSetup()
+                }
+            } else {
+                // Not verified: keep the previous selection, do not claim success.
+                outcome = .failure("The setup download finished but the files did not verify. Please try again.")
+            }
+            return
+        }
         if outcome == nil {
             switch (which, status) {
             case (.kick, 0): outcome = .success("Reboot sent. iPhone OS should start in about 40 seconds.")
@@ -432,4 +475,5 @@ final class Model: ObservableObject {
         if which == .restore { Task { await refreshRestoreInfo() } }
         if which == .download { Task { await refreshSetup() } }
     }
+
 }

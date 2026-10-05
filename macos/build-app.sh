@@ -31,8 +31,8 @@ if [ "$PUBLIC" = 0 ]; then
 fi
 
 cd "$HERE"
-swift build -c release
-BIN="$(swift build -c release --show-bin-path)/iPhone2Gkit"
+swift build -c release --arch arm64 --arch x86_64
+BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/iPhone2Gkit"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$R/engine/kit" "$R/bin"
@@ -69,6 +69,7 @@ if [ "$PUBLIC" = 0 ]; then cp "$V/firmware/"*.ipsw "$R/firmware/"; fi
 
 mkdir -p "$R/engine/kit/resources"
 cp "$ROOT/kit/resources/PWNAGE-SOURCE-LICENSE.txt" "$ROOT/kit/resources/pwnage2-wtf.patch" "$R/engine/kit/resources/"
+[ -f "$ROOT/kit/resources/legacy-kit-manifest.json" ] && cp "$ROOT/kit/resources/legacy-kit-manifest.json" "$R/engine/kit/resources/"
 if [ "$PUBLIC" = 0 ]; then
     cp "$ROOT/kit/resources/kernelcache-1.0.dat" "$ROOT/kit/resources/plutil-ios1" "$R/engine/kit/resources/"
     chmod 644 "$R/engine/kit/resources/plutil-ios1"

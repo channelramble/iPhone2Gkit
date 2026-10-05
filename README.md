@@ -5,7 +5,7 @@ A native **macOS app** and a **Linux desktop app/CLI** for the original iPhone
 activation, the 2007‑era apps, and a Launcher home screen — with no Windows XP,
 iTunes, or iLiberty.
 
-> **Status — experimental preview (v2.2.0‑beta.1).** Activation and app install
+> **Status — experimental preview (v2.2.0‑beta.2).** Activation and app install
 > are proven on a real phone. The **restore/downgrade feature has only been
 > tested offline**; it erases the phone and can leave it stuck in recovery/DFU,
 > so treat it as experimental. How it works and exactly what's verified:

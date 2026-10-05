@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "iPhone2Gkit",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v12)],
     targets: [
         .executableTarget(name: "iPhone2Gkit", path: "Sources/iOS1Kit")
     ]

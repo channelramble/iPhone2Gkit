@@ -8,10 +8,11 @@ BASE="$HERE/vendor/build/prefix"
 R="$HERE/vendor/restore"
 P="$R/prefix"
 COMMIT=c25aefd49b3769c2907875e15566d433d59bd979
-export MACOSX_DEPLOYMENT_TARGET=13.0
-export CFLAGS="-O2 -mmacosx-version-min=13.0"
+export MACOSX_DEPLOYMENT_TARGET=12.0
+ARCHES="-arch arm64 -arch x86_64"
+export CFLAGS="-O2 -mmacosx-version-min=12.0 $ARCHES"
 export CXXFLAGS="$CFLAGS"
-export LDFLAGS="-mmacosx-version-min=13.0 -framework IOKit -framework CoreFoundation"
+export LDFLAGS="-mmacosx-version-min=12.0 $ARCHES -framework IOKit -framework CoreFoundation"
 [ "$(uname -m)" = arm64 ] || { echo 'Restore tools currently require an Apple Silicon build host.' >&2; exit 1; }
 [ -f "$BASE/lib/libirecovery-1.0.a" ] || { echo 'Run macos/fetch-deps.sh first.' >&2; exit 1; }
 for tool in pkg-config cmake autoreconf make clang perl; do
@@ -70,8 +71,8 @@ Cflags: -I$SDK/usr/include
 EOF
     (
         cd "$R/build/openssl-3.5.4"
-        ./Configure darwin64-arm64-cc no-shared no-module no-tests \
-            --prefix="$P" --openssldir=/nonexistent/iphone2gkit-openssl "$CFLAGS" || exit 1
+        ./Configure darwin64-arm64-cc no-asm no-shared no-module no-tests \
+            --prefix="$P" --openssldir=/nonexistent/iphone2gkit-openssl || exit 1  # env CFLAGS carries both arches; no-asm => fat in one pass
         make -j8 || exit 1
         make install_sw || exit 1
     ) > "$R/build/openssl.log" 2>&1 || { tail -40 "$R/build/openssl.log" >&2; exit 1; }
@@ -89,7 +90,7 @@ EOF
     echo 'Building libzip'
     cmake -S "$R/build/libzip-1.11.4" -B "$R/build/libzip-cmake" \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$P" \
-        -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_ARCHITECTURES=arm64 \
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
         -DBUILD_SHARED_LIBS=OFF -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF \
         -DBUILD_OSSFUZZ=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF \
         -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF \
@@ -140,13 +141,17 @@ EOF
 fi
 
 for program in idevicerestore ideviceinfo idevice_id; do
-    links="$(otool -L "$R/bin/$program" | sed '1d' | awk '{print $1}')"
-    if printf '%s\n' "$links" | grep -v -E '^/(usr/lib|System)/' >/dev/null; then
-        echo "$program links non-system libraries: $links" >&2; exit 1
-    fi
-    [ "$(lipo -archs "$R/bin/$program")" = arm64 ] || { echo "Unexpected architecture: $program" >&2; exit 1; }
-    minos="$(otool -l "$R/bin/$program" | awk '/LC_BUILD_VERSION/{inside=1} inside && /minos/{print $2;exit}')"
-    [ "$minos" = 13.0 ] || { echo "Unexpected minimum macOS: $program $minos" >&2; exit 1; }
-    "$R/bin/$program" --help >/dev/null
+    bin="$R/bin/$program"
+    # fat binaries: otool -L prints every slice, so check each arch's deps on its own
+    for arch in arm64 x86_64; do
+        nonsys="$(otool -arch $arch -L "$bin" | sed '1d' | awk '{print $1}' | grep -v -E '^/(usr/lib|System)/' || true)"
+        [ -z "$nonsys" ] || { echo "$program ($arch) links non-system libraries: $nonsys" >&2; exit 1; }
+    done
+    a="$(lipo -archs "$bin")"; echo "$a" | grep -q arm64 && echo "$a" | grep -q x86_64 || { echo "Not universal: $program ($a)" >&2; exit 1; }
+    for arch in arm64 x86_64; do
+        minos="$(otool -arch $arch -l "$bin" | awk '/LC_BUILD_VERSION/{i=1} i&&/minos/{print $2;exit}')"
+        [ "$minos" = 12.0 ] || { echo "Unexpected minimum macOS ($arch): $program $minos" >&2; exit 1; }
+    done
+    "$bin" --help >/dev/null
 done
-echo "Restore tools ready in $R/bin (arm64, macOS 13, system libraries only)."
+echo "Restore tools ready in $R/bin (universal arm64+x86_64, macOS 12, system libraries only)."
