@@ -1,0 +1,53 @@
+name: Validate macOS release candidate on both architectures
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_tag:
+        description: Draft release holding the compiled universal app
+        type: string
+        required: true
+      sha256:
+        description: Expected SHA-256 of iPhone2Gkit-macos-universal.zip
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Download the exact candidate archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: gh release download "$CANDIDATE_TAG" --pattern iPhone2Gkit-macos-universal.zip --dir candidate
+      - name: Validate native runtime, clean setup and image builds
+        env:
+          EXPECTED_SHA256: ${{ inputs.sha256 }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p evidence
+          python3 -B release/test-macos.py candidate/iPhone2Gkit-macos-universal.zip \
+            --sha256 "$EXPECTED_SHA256" --arch "$EXPECTED_ARCH" --downloads --evidence evidence \
+            2>&1 | tee evidence/test-report.txt
+      - name: Keep native validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: macos-validation-${{ matrix.arch }}
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 14
