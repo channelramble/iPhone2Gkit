@@ -4,9 +4,11 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from kit import assets as A
+from kit import ramdisk
 
 
 class Response(io.BytesIO):
@@ -68,3 +70,33 @@ class FirmwareDownloadTests(unittest.TestCase):
             A.fetch_firmware("3.1.3")
         self.urlopen.assert_not_called()
 
+
+class KitImportTests(unittest.TestCase):
+    def test_converter_comes_from_basepack_not_the_bsd_app_pack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            kit = root / "kit"
+            archive = kit / "iLiberty-portable/iLiberty/BasePack.zip"
+            archive.parent.mkdir(parents=True)
+            converter = b"plist converter fixture"
+            with zipfile.ZipFile(archive, "w") as z:
+                z.writestr("bin/plutil", converter)
+            with patch.object(A.platforms, "data_dir", return_value=root / "data"), \
+                 patch.object(ramdisk, "PLUTIL_SHA", hashlib.sha256(converter).hexdigest()):
+                destination = A.import_plutil(kit)
+            self.assertEqual(Path(destination).read_bytes(), converter)
+
+    def test_invalid_converter_cannot_replace_a_valid_resource(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "kit/iLiberty-portable/iLiberty/BasePack.zip"
+            archive.parent.mkdir(parents=True)
+            with zipfile.ZipFile(archive, "w") as z:
+                z.writestr("bin/plutil", b"invalid")
+            valid = root / "data/resources/plutil-ios1"
+            valid.parent.mkdir(parents=True)
+            valid.write_bytes(b"existing verified converter")
+            with patch.object(A.platforms, "data_dir", return_value=root / "data"):
+                with self.assertRaisesRegex(A.AssetError, "checksum"):
+                    A.import_plutil(root / "kit")
+            self.assertEqual(valid.read_bytes(), b"existing verified converter")

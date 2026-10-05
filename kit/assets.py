@@ -59,7 +59,7 @@ def prepare_kernel(path):
 def import_plutil(kit):
     """Use the existing kit's genuine 2007 converter without redistributing it."""
     from . import ramdisk
-    path = Path(kit) / "ios1-apps/iliberty-payloads/iOS1-BSDBase.zip"
+    path = Path(kit) / "iLiberty-portable/iLiberty/BasePack.zip"
     try:
         with zipfile.ZipFile(path) as archive:
             member = archive.getinfo("bin/plutil")
