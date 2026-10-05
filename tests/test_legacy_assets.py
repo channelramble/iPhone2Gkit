@@ -3,6 +3,7 @@ import fcntl
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -56,7 +57,11 @@ class SetupDownloadTests(unittest.TestCase):
         self.assertTrue(result["verified"])
         self.assertEqual(Path(result["kit"]).joinpath("ios1-apps/catalog.json").read_bytes(), b"[]")
         self.assertEqual((self.root / "data/resources/plutil-ios1").read_bytes(), self.converter)
-        self.assertEqual(cli.find_kit(), result["kit"])
+        # CI also tests a real downloaded kit via IOS1KIT_ASSETS. Automatic
+        # discovery here must inspect this test's isolated managed directory,
+        # without the intentional higher-priority override from that fixture.
+        with patch.dict(os.environ, {"IOS1KIT_ASSETS": ""}):
+            self.assertEqual(cli.find_kit(), result["kit"])
         self.assertFalse((Path(result["kit"]) / ramdisk.ASSETS_KC).exists())
 
     def test_second_setup_uses_installed_bundle_without_network(self):
