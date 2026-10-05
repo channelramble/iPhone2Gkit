@@ -11,12 +11,21 @@ Extract the complete folder, then run `./iphone2gkit`. To use the command line,
 pass a command: `./iphone2gkit restore-info` or `./iphone2gkit --help`.
 The app works from another directory and through a symlink.
 
-The open-source download contains no Apple IPSWs or legacy proprietary app
-payloads. Download stock firmware inside the app (checked against a pinned
-size and SHA-256), or choose your own iPhone1,1 IPSW. Import an existing
-`iphone-2g-ios-1-kit-full` folder to enable its 1.0 activation and app actions.
-Firmware is cached in `~/.local/share/iPhone2Gkit/firmware` and working files
-in `~/.cache/iPhone2Gkit` (standard XDG overrides are supported).
+Click **Download setup files** once. The app downloads and verifies the
+historical setup bundle and stock 1.0 resources, then shows the app list.
+No kit folder is needed. Downloading setup does not contact or change the phone.
+For a phone already running 1.0, choose your apps and click **Install selected
+apps**. **Show Launcher** makes installed apps accessible from its single home screen.
+
+The **Restore / downgrade** tab downloads the selected firmware separately,
+or accepts your own iPhone1,1 IPSW. Check the restore plan and read its warnings
+before erasing. **Advanced** contains manual kit import, USB setup, repair,
+recovery exit, ramdisk settings and the detailed log.
+
+Setup/firmware lives in `~/.local/share/iPhone2Gkit` and working files in
+`~/.cache/iPhone2Gkit` (standard XDG overrides are supported). Stock IPSWs
+are not bundled; downloads are checked against fixed sizes and SHA-256 digests.
+Historical setup components retain their original licenses.
 
 ## USB access
 
@@ -35,7 +44,7 @@ sudo ./resources/bin/usbmuxd --foreground --user root
 
 Leave that terminal open while using the app. The executable has a relative
 library path and works without a separate install. The app never stops or
-replaces an existing daemon. Use **Check phone service** to check the connection.
+replaces an existing daemon. Use **Advanced → Check phone service** to check the connection.
 
 If Tk reports a missing X11/font library on a minimal system, install the
 desktop OS packages `libx11-6 libxext6 libxft2 libxrender1 libfontconfig1`.
@@ -55,27 +64,4 @@ limited to known evidence; unknown hardware requires a manual choice. Stock
 1.0 does not support every original iPhone. Activation/app installation is
 for a phone already restored to 1.0; later firmware activation is not provided.
 
-## Build and test
-
-On Ubuntu 22.04 x86_64:
-
-```sh
-sudo apt-get install build-essential pkg-config autoconf automake libtool cmake \
-  curl patchelf zstd zlib1g-dev libbz2-dev libssl-dev perl xvfb xauth \
-  libx11-6 libxext6 libxft2 libxrender1 libfontconfig1
-./linux/build-linux.sh --public
-```
-
-Every downloaded source/runtime archive has a fixed SHA-256 in the script.
-LGPL libraries stay replaceable in `resources/lib`; sources, local patches,
-build recipe and license texts are included. The HFS build uses only xpwn's
-`common` and `hfs` targets. GUI smoke testing uses Xvfb and never talks to a phone.
-Portable package and checksum are produced in `dist/`.
-
-`./linux/test-linux.sh` validates the packaged runtime, runs the unit tests and
-captures the real GUI under Xvfb without contacting a phone. Network tests are
-opt-in: `IPHONE2GKIT_TEST_DOWNLOADS=1 ./linux/test-linux.sh` downloads and checks
-all stock firmware in temporary user storage, then removes it. A private
-`IPHONE2GKIT_FIXTURE_ROOT` may supply `kit-assets/` and the two verified
-`resources/` files to exercise complete offline ramdisk builds; these files
-are never added to the public package.
+Build recipes, test details and technical context are in [AGENTS.md](../AGENTS.md).
