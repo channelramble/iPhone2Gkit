@@ -61,7 +61,7 @@ On Ubuntu 22.04 x86_64:
 
 ```sh
 sudo apt-get install build-essential pkg-config autoconf automake libtool cmake \
-  curl patchelf zlib1g-dev libbz2-dev libssl-dev perl xvfb xauth \
+  curl patchelf zstd zlib1g-dev libbz2-dev libssl-dev perl xvfb xauth \
   libx11-6 libxext6 libxft2 libxrender1 libfontconfig1
 ./linux/build-linux.sh --public
 ```

@@ -17,7 +17,7 @@ for argument in "$@"; do
     esac
 done
 [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] || { echo 'Build on x86_64 GNU/Linux (Ubuntu 22.04 or newer).' >&2; exit 1; }
-for tool in cc c++ make cmake pkg-config autoreconf curl tar patch patchelf sha256sum perl; do
+for tool in cc c++ make cmake pkg-config autoreconf curl tar patch patchelf sha256sum perl zstd; do
     command -v "$tool" >/dev/null || { echo "Missing build tool: $tool. See linux/README.md." >&2; exit 1; }
 done
 mkdir -p "$V/src" "$P" "$DIST"
@@ -36,6 +36,15 @@ PY=cpython-3.12.15+20261003-x86_64-unknown-linux-gnu-install_only_stripped.tar.g
 # Digest from the upstream GitHub release asset API, not inferred from its name.
 fetch "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz" \
     "$PY" 731af898886c5f821890dc901eca3c651cca8e51fa7308c159d12a1194aeac91
+# The install-only archive omits notices for linked runtime components. Extract
+# all licenses + build metadata from the matching full upstream distribution.
+PYFULL=cpython-3.12.15+20261003-x86_64-unknown-linux-gnu-pgo+lto-full.tar.zst
+fetch "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst" \
+    "$PYFULL" aaeeeeea4f98a41c7acd7379229a374c201aee45c1954be5788c18af83733d2b
+mkdir -p "$V/python-notices"
+tar --zstd -xf "$V/src/$PYFULL" -C "$V/python-notices" --strip-components=1 python/licenses python/PYTHON.json
+fetch https://raw.githubusercontent.com/tcltk/tk/core-9-0-4/license.terms \
+    tk-9.0.4-license.terms 2cde822b93ca16ae535c954b7dfe658b4ad10df2a193628d1b358f1765e8b198
 fetch https://github.com/libimobiledevice/libplist/releases/download/2.7.0/libplist-2.7.0.tar.bz2 \
     libplist-2.7.0.tar.bz2 7ac42301e896b1ebe3c654634780c82baa7cb70df8554e683ff89f7c2643eb8b
 fetch https://github.com/libimobiledevice/libimobiledevice-glue/releases/download/1.3.2/libimobiledevice-glue-1.3.2.tar.bz2 \
@@ -73,7 +82,7 @@ if [ "$(cat "$V/build.key" 2>/dev/null || true)" != "$BUILD_KEY" ] || [ ! -x "$P
     rm -rf "$V/build" "$P"
     mkdir -p "$V/build" "$P/lib/pkgconfig"
     for file in "$V/src/"*.tar.*; do
-        [ "$(basename "$file")" = "$PY" ] || tar -xf "$file" -C "$V/build"
+        case "$(basename "$file")" in cpython-*) ;; *) tar -xf "$file" -C "$V/build" ;; esac
     done
     export CFLAGS="-O2 -fPIC"
     export CXXFLAGS="$CFLAGS"
@@ -96,7 +105,7 @@ if [ "$(cat "$V/build.key" 2>/dev/null || true)" != "$BUILD_KEY" ] || [ ! -x "$P
     configure_build libplist-2.7.0 --without-cython --without-tests
     configure_build libimobiledevice-glue-1.3.2
     patch -d "$V/build/libirecovery-1.3.1" -p1 < "$ROOT/macos/libirecovery-iokit.patch"
-    configure_build libirecovery-1.3.1
+    configure_build libirecovery-1.3.1 --with-udevrulesdir="$P/share/udev/rules.d"
     (
         cd "$V/build/openssl-3.5.4"
         ./Configure linux-x86_64 shared no-module no-tests --prefix="$P" --libdir=lib --openssldir=/etc/ssl
@@ -111,7 +120,7 @@ if [ "$(cat "$V/build.key" 2>/dev/null || true)" != "$BUILD_KEY" ] || [ ! -x "$P
     configure_build libtatsu-1.0.5
     configure_build libimobiledevice-1.4.0 --without-cython --without-readline --without-gnutls --without-mbedtls \
         --with-openssl --disable-wireless-pairing
-    configure_build usbmuxd-1.1.1 --without-systemd --without-preflight
+    configure_build usbmuxd-1.1.1 --without-systemd --without-preflight --with-udevrulesdir="$P/share/udev/rules.d"
     cmake -S "$V/build/libzip-1.11.4" -B "$V/build/libzip-cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$P" \
         -DBUILD_SHARED_LIBS=ON -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_OSSFUZZ=OFF -DBUILD_EXAMPLES=OFF \
         -DBUILD_DOC=OFF -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF \
@@ -155,7 +164,8 @@ mkdir -p "$R/engine/kit/resources" "$R/bin" "$R/lib" "$R/ThirdPartySources" "$R/
 tar -xzf "$V/src/$PY" -C "$R"
 # Keep Tk and its Tcl scripts. No pip, IDE, package manager or build headers.
 rm -rf "$R/python/include" "$R/python/lib/python3.12/site-packages" "$R/python/lib/python3.12/test" \
-    "$R/python/lib/python3.12/idlelib" "$R/python/lib/python3.12/ensurepip" "$R/python/lib/python3.12/turtledemo"
+    "$R/python/lib/python3.12/idlelib" "$R/python/lib/python3.12/ensurepip" "$R/python/lib/python3.12/turtledemo" \
+    "$R/python/lib/itcl4.3.8" "$R/python/lib/thread3.0.6"
 rm -f "$R/python/bin/pip"* "$R/python/bin/idle"* "$R/python/bin/"*config
 find "$R/python" -name '__pycache__' -prune -exec rm -rf {} +
 cp "$ROOT/ios1kit" "$R/engine/ios1kit"
@@ -172,9 +182,9 @@ for binary in irecovery idevicerestore ideviceinfo idevice_id ios1kit-recovery-c
 done
 cp "$P/sbin/usbmuxd" "$R/bin/"
 cp -a "$P/lib/"*.so* "$R/lib/"
-# System zlib and libcrypt are the only non-glibc native dependencies not built
-# above. Copy them as well; the package does not depend on distro developer libs.
-for name in libz.so.1 libcrypt.so.1; do
+# System zlib is the only non-glibc native dependency not built above. Copy it
+# as well; the package does not depend on distro developer libraries.
+for name in libz.so.1; do
     library="$(ldconfig -p | awk -v name="$name" '$1 == name && /x86-64/ && !seen {print $NF; seen=1}')"
     [ -z "$library" ] || cp -L "$library" "$R/lib/$name"
 done
@@ -186,7 +196,12 @@ cp "$HERE/gui.py" "$HERE/iphone2gkit" "$HERE/setup-usb.sh" "$HERE/README.md" "$B
 cp "$ROOT/README.md" "$BUNDLE/ENGINE-README.md"
 chmod 755 "$BUNDLE/iphone2gkit" "$BUNDLE/setup-usb.sh"
 # Corresponding sources and patches for the bundled LGPL/GPL programs.
-cp "$V/src/"*.tar.* "$R/ThirdPartySources/"
+for source in "$V/src/"*.tar.*; do
+    [ "$(basename "$source")" = "$PYFULL" ] || cp "$source" "$R/ThirdPartySources/"
+done
+cp -a "$V/python-notices/licenses" "$R/ThirdPartyLicenses/python-standalone"
+cp "$V/python-notices/PYTHON.json" "$R/ThirdPartyLicenses/python-standalone/BUILD-RECORD.json"
+cp "$V/src/tk-9.0.4-license.terms" "$R/ThirdPartyLicenses/python-standalone/LICENSE.tk.txt"
 cp "$ROOT/macos/libirecovery-iokit.patch" "$ROOT/macos/restore-build.patch" \
     "$ROOT/macos/recovery-console.c" "$HERE/build-linux.sh" "$R/ThirdPartySources/"
 for package in "$V/build/"*/; do
@@ -196,11 +211,11 @@ for package in "$V/build/"*/; do
     done
 done
 [ ! -f /usr/share/doc/zlib1g/copyright ] || cp /usr/share/doc/zlib1g/copyright "$R/ThirdPartyLicenses/zlib-copyright"
-[ ! -f /usr/share/doc/libcrypt1/copyright ] || cp /usr/share/doc/libcrypt1/copyright "$R/ThirdPartyLicenses/libcrypt-copyright"
 cat > "$R/ThirdPartyLicenses/SOURCES.txt" <<'EOF'
 The bundled native sources, build recipe, patches and fixed SHA-256 checksums
 are provided under ../ThirdPartySources. Python is python-build-standalone
-3.12.15 (20261003), including its Tcl/Tk runtime; its licenses are in python/.
+3.12.15 (20261003), including Tcl/Tk 9.0.4; runtime component licenses and
+build metadata are in ThirdPartyLicenses/python-standalone/.
 libusb 1.0.29, libplist 2.7.0, libimobiledevice-glue 1.3.2, libirecovery 1.3.1,
 libusbmuxd 2.1.1, libimobiledevice 1.4.0, libtatsu 1.0.5, usbmuxd 1.1.1,
 OpenSSL 3.5.4, curl 8.10.1, libzip 1.11.4, OpenSSH 9.9p2, xpwn 20c32e5,
