@@ -43,6 +43,8 @@ jobs:
           python3 -B release/test-macos.py candidate/iPhone2Gkit-macos-universal.zip \
             --sha256 "$EXPECTED_SHA256" --arch "$EXPECTED_ARCH" --downloads --evidence evidence \
             2>&1 | tee evidence/test-report.txt
+      - name: Test setup cancellation and selected-kit recovery
+        run: python3 -B release/test-macos-model.py 2>&1 | tee evidence/model-test-report.txt
       - name: Keep native validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
