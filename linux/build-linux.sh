@@ -194,6 +194,7 @@ find "$R/lib" -type f -name '*.so*' -print0 | while IFS= read -r -d '' library; 
 done
 cp "$HERE/gui.py" "$HERE/iphone2gkit" "$HERE/setup-usb.sh" "$HERE/README.md" "$BUNDLE/"
 cp "$ROOT/README.md" "$BUNDLE/ENGINE-README.md"
+cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$BUNDLE/"
 chmod 755 "$BUNDLE/iphone2gkit" "$BUNDLE/setup-usb.sh"
 # Corresponding sources and patches for the bundled LGPL/GPL programs.
 for source in "$V/src/"*.tar.*; do

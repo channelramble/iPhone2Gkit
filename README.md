@@ -178,7 +178,7 @@ against a pinned SHA-256.
 
 ## Activation and apps (the existing ios1kit engine)
 
-Activation, apps and repair for an original iPhone (iPhone1,1) running iPhone OS 1.0. It runs on macOS (Apple Silicon or Intel) with no Windows XP, no iTunes and no iLiberty.
+Activation, apps and repair for an original iPhone (iPhone1,1) running iPhone OS 1.0. Public packages run on Apple Silicon macOS and x86_64 Linux with no Windows XP, iTunes or iLiberty application.
 
 ## Why iLiberty failed, and what this does differently
 

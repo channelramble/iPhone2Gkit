@@ -55,12 +55,15 @@ cp "$HERE/ios1kit-cli.sh" "$R/bin/iphone2gkit"
 chmod 755 "$R/bin/iphone2gkit"
 cp "$V/restore/bin/idevicerestore" "$V/restore/bin/ideviceinfo" "$V/restore/bin/idevice_id" "$R/bin/"
 ditto "$V/restore/licenses" "$R/ThirdPartyLicenses"
+ditto "$V/python-notices/licenses" "$R/ThirdPartyLicenses/python-standalone"
+cp "$V/python-notices/PYTHON.json" "$R/ThirdPartyLicenses/python-standalone/BUILD-RECORD.json"
 mkdir -p "$R/ThirdPartySources"
 cp "$V/restore/src/"*.tar.* "$R/ThirdPartySources/"
 cp "$V/src/libplist-2.7.0.tar.bz2" "$V/src/libimobiledevice-glue-1.3.2.tar.bz2" \
     "$V/src/libirecovery-1.3.1.tar.bz2" "$R/ThirdPartySources/"
 cp "$HERE/fetch-deps.sh" "$HERE/fetch-restore-deps.sh" "$HERE/restore-build.patch" \
-    "$HERE/libirecovery-iokit.patch" "$HERE/recovery-console.c" "$R/ThirdPartySources/"
+    "$HERE/libirecovery-iokit.patch" "$HERE/recovery-console.c" "$HERE/build-app.sh" "$R/ThirdPartySources/"
+cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$R/"
 mkdir -p "$R/firmware"
 if [ "$PUBLIC" = 0 ]; then cp "$V/firmware/"*.ipsw "$R/firmware/"; fi
 
@@ -88,7 +91,11 @@ fi
 
 # the terminal command must work through a symlink, from anywhere
 ln -sf "$R/bin/ios1kit" "$DIST/.ios1kit-link"
-(cd / && "$DIST/.ios1kit-link" list --json >/dev/null) || { echo "bundled ios1kit command failed" >&2; exit 1; }
+if [ "$PUBLIC" = 1 ]; then
+    (cd / && "$DIST/.ios1kit-link" --help >/dev/null) || { echo "bundled ios1kit command failed" >&2; exit 1; }
+else
+    (cd / && "$DIST/.ios1kit-link" list --json >/dev/null) || { echo "bundled ios1kit command failed" >&2; exit 1; }
+fi
 rm -f "$DIST/.ios1kit-link"
 
 # sign every Mach-O inside (arm64 refuses unsigned code), then the app itself

@@ -71,3 +71,11 @@ LGPL libraries stay replaceable in `resources/lib`; sources, local patches,
 build recipe and license texts are included. The HFS build uses only xpwn's
 `common` and `hfs` targets. GUI smoke testing uses Xvfb and never talks to a phone.
 Portable package and checksum are produced in `dist/`.
+
+`./linux/test-linux.sh` validates the packaged runtime, runs the unit tests and
+captures the real GUI under Xvfb without contacting a phone. Network tests are
+opt-in: `IPHONE2GKIT_TEST_DOWNLOADS=1 ./linux/test-linux.sh` downloads and checks
+all stock firmware in temporary user storage, then removes it. A private
+`IPHONE2GKIT_FIXTURE_ROOT` may supply `kit-assets/` and the two verified
+`resources/` files to exercise complete offline ramdisk builds; these files
+are never added to the public package.

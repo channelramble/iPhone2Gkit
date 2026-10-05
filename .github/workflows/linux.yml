@@ -49,6 +49,8 @@ jobs:
               f.write('IPHONE2GKIT_FIXTURE_ROOT=' + str(root) + '\n')
           PY
       - name: Offline tests and GUI smoke test on Linux
+        env:
+          IPHONE2GKIT_TEST_DOWNLOADS: ${{ inputs.fixtures != '' && '1' || '0' }}
         run: bash linux/test-linux.sh
       - name: Upload tested package and test evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

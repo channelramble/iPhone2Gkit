@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# No phone is opened or changed. Optional private assets stay outside the archive.
+# No phone is opened or changed. Optional private assets/downloads stay outside the archive.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
@@ -30,12 +30,18 @@ if [ -n "$FIXTURES" ]; then
 fi
 cd "$ROOT"
 {
-    echo 'Linux package validation (offline; no phone actions)'
+    echo 'Linux package validation (no phone actions)'
     "$PY" -B -c 'import sys, tkinter, ssl; print(sys.version); print("Tk", tkinter.TkVersion, "TLS", ssl.OPENSSL_VERSION)'
     for binary in irecovery idevicerestore ideviceinfo idevice_id usbmuxd hfsplus ssh-keygen; do
         echo "== $binary dynamic dependencies =="
         ldd "$R/bin/$binary"
     done
+    if [ "${IPHONE2GKIT_TEST_DOWNLOADS:-0}" = 1 ]; then
+        echo 'Opt-in: downloading and hash-verifying stock firmware into isolated user data.'
+        FETCH_ARGS=(fetch-firmware --target all)
+        if [ -n "$FIXTURES" ]; then FETCH_ARGS+=(--import-kit "$FIXTURES/kit-assets"); fi
+        "$APP/iphone2gkit" "${FETCH_ARGS[@]}"
+    fi
     # Test the same modules as source on a real Linux host, plus actual window init.
     xvfb-run -a "$PY" -B -m unittest discover -s tests -v
     xvfb-run -a "$APP/iphone2gkit" --gui-smoke-test --screenshot "$DIST/linux-gui.png"

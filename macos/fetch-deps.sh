@@ -23,6 +23,14 @@ fetch() { # url file sha256
 PY=cpython-3.12.15+20261003-aarch64-apple-darwin-install_only_stripped.tar.gz
 fetch "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-aarch64-apple-darwin-install_only_stripped.tar.gz" \
 	"$PY" ad8d0c637c0a36b967b310e2c07254f4d2ca8cabaa7699e55ed6290aceb481a2
+# Install-only archives omit notices for several linked components. Preserve
+# the upstream license collection and build record, without bundling this
+# larger build archive in the application.
+PYFULL=cpython-3.12.15+20261003-aarch64-apple-darwin-pgo+lto-full.tar.zst
+fetch "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-aarch64-apple-darwin-pgo%2Blto-full.tar.zst" \
+	"$PYFULL" a23a0baff73a5f10c820841cc1889a5b7fc12048fe8c0622f6a481ab82ea367b
+mkdir -p "$V/python-notices"
+tar -xf "$V/src/$PYFULL" -C "$V/python-notices" --strip-components=1 python/licenses python/PYTHON.json
 fetch https://github.com/libimobiledevice/libplist/releases/download/2.7.0/libplist-2.7.0.tar.bz2 \
 	libplist-2.7.0.tar.bz2 7ac42301e896b1ebe3c654634780c82baa7cb70df8554e683ff89f7c2643eb8b
 fetch https://github.com/libimobiledevice/libimobiledevice-glue/releases/download/1.3.2/libimobiledevice-glue-1.3.2.tar.bz2 \

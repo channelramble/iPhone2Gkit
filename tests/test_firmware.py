@@ -15,7 +15,7 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from kit import firmware as F  # noqa: E402
+from kit import firmware as F, ramdisk, restore  # noqa: E402
 
 
 def decoded_kernel(container):
@@ -151,7 +151,10 @@ class FirmwareTests(unittest.TestCase):
 
 class StockEvidenceTests(unittest.TestCase):
     def test_bundled_one_zero_kernel_tables_match_recorded_evidence(self):
-        container = (ROOT / "kit/resources/kernelcache-1.0.dat").read_bytes()
+        path = Path(ramdisk.STOCK_KERNEL)
+        if not path.is_file():
+            self.skipTest("Download the verified 1.0 IPSW to prepare its kernel first")
+        container = path.read_bytes()
         kernel = decoded_kernel(container)
         evidence = [t for t in F.nand_tables() if t["version"] == "1.0"]
         self.assertEqual(hashlib.sha256(container).hexdigest(), evidence[0]["kernel_sha256"])
@@ -163,8 +166,8 @@ class StockEvidenceTests(unittest.TestCase):
         for record in F.firmwares():
             if record["version"] not in ("1.1.1", "1.1.3"):
                 continue
-            path = ROOT / "macos/vendor/firmware" / record["filename"]
-            if not path.is_file():
+            path = restore.firmware_path(record)
+            if path is None:
                 continue
             with self.subTest(version=record["version"]):
                 self.assertEqual(path.stat().st_size, record["size"])

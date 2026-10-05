@@ -3,3 +3,16 @@ __pycache__/
 dist/
 macos/.build/
 macos/vendor/
+linux/vendor/
+.crosstalk/
+*.log
+*.ipsw
+*.dmg
+*.img
+*.dat
+*.nes
+*.gba
+*bios*
+*host_key*
+kit/resources/plutil-ios1
+research-restore/
