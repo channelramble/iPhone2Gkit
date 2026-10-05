@@ -49,7 +49,8 @@ def find_kit(explicit=None):
     cands += sorted(glob.glob(os.path.expanduser(
         "~/crosstalk-workspaces/*/.crosstalk/uploads/*/iphone-2g-ios-1-kit-full")))
     for c in cands:
-        if c and os.path.isfile(os.path.join(c, RD.ASSETS_KC)):
+        if (c and os.path.isfile(os.path.join(c, RD.ASSETS_RD))
+                and os.path.isfile(os.path.join(c, "ios1-apps/catalog.json"))):
             return os.path.abspath(c)
     return None
 
@@ -57,8 +58,8 @@ def find_kit(explicit=None):
 def need_kit(args):
     kit = find_kit(args.kit)
     if not kit:
-        sys.exit("Kit folder not found. Pass --kit /path/to/iphone-2g-ios-1-kit-full "
-                 "(the folder that contains iLiberty-portable/ and ios1-apps/).")
+        sys.exit("Setup files are missing. Run `iphone2gkit setup` or click Download setup files in the app. "
+                 "You can also import an existing kit with --kit PATH.")
     return kit
 
 
@@ -236,7 +237,7 @@ def cmd_doctor(args):
         ok = False
     kit = find_kit(args.kit)
     if not kit:
-        print("  ! kit folder not found (use --kit)")
+        print("  ! setup files are missing (run `iphone2gkit setup`)")
         return 1
     print("Kit: %s" % kit)
     for prob in RD.check_assets(kit):
@@ -267,16 +268,23 @@ def _doctor_json(args):
         r["problems"].append(str(e))
     kit = find_kit(args.kit)
     r["kit"] = kit
+    kit_problems = []
     if not kit:
-        r["problems"].append("kit folder not found")
+        kit_problems.append("Setup files are missing. Click Download setup files.")
     else:
-        r["problems"] += RD.check_assets(kit)
+        kit_problems += RD.check_assets(kit)
         try:
             for p in P.load_catalog(os.path.join(kit, "ios1-apps")):
                 p.check()
         except (P.PayloadError, OSError) as e:
-            r["problems"].append("payloads: %s" % e)
+            kit_problems.append("payloads: %s" % e)
+    r["problems"] += kit_problems
     r["ok"] = not r["problems"]
+    from . import legacy_assets
+    setup = legacy_assets.manifest()
+    r["setup"] = {"ready": kit is not None and not kit_problems,
+                  "download_url": setup["url"], "size": setup["size"],
+                  "resource_version": setup["version"]}
     print(json.dumps(r))
     return 0 if r["ok"] else 1
 
@@ -513,6 +521,14 @@ def cmd_fetch_firmware(args):
     return 0
 
 
+def cmd_setup(args):
+    from . import legacy_assets
+    def progress(version, count, total):
+        emit("download", version=version, pct=round(count * 100 / total, 1))
+    print(json.dumps(legacy_assets.setup(progress)))
+    return 0
+
+
 def cmd_transport_info(args):
     report = M.check(R.usb_inventory(), probe_service=args.probe_service)
     if args.json:
@@ -607,6 +623,7 @@ def main(argv=None):
     sp.add_argument("--target", choices=("1.0", "1.1.1", "1.1.3", "3.1.3", "all"), default="3.1.3")
     sp.add_argument("--import-kit", help="also import the matching 2007 plist converter from an existing kit folder")
     sp.set_defaults(fn=cmd_fetch_firmware)
+    sub.add_parser("setup", help="download and prepare 1.0 app setup files; never contacts the phone").set_defaults(fn=cmd_setup)
     sp = sub.add_parser("transport-info", help="read-only physical USB / macOS connection-service readiness")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--probe-service", action="store_true", help="also send only QueryType to the visible phone's service")

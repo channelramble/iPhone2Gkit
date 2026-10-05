@@ -41,8 +41,6 @@ BASE_SLACK = 1024 * 1024          # per-file rounding + catalog growth headroom
 
 ASSETS = {
     # relative path in the kit folder: sha256
-    "iLiberty-portable/iLiberty/iLibertyKC.dat":
-        "c34ae4088ad9ffdfe82dce7528f85f3fc476ca5f5a35af647c8255d44968d903",
     "iLiberty-portable/iLiberty/iLibertyRD.zip":
         "89f8761cf0c9fe8461aabf6f125657e52bd5765a866a621f24edd85fc1cf3bdd",
     "iLiberty-portable/optional-payloads/Activate10And101.zip":
@@ -73,7 +71,7 @@ def check_assets(kit):
     if not os.path.isfile(STOCK_KERNEL) or sha256(STOCK_KERNEL) != STOCK_KERNEL_SHA:
         problems.append("iPhone OS 1.0 kernel not prepared; prepare 1.0 resources first")
     if not os.path.isfile(PLUTIL) or sha256(PLUTIL) != PLUTIL_SHA:
-        problems.append("iPhone plist converter not prepared; import a kit and prepare 1.0 resources")
+        problems.append("iPhone plist converter not prepared; download setup files first")
     for rel, want in ASSETS.items():
         p = os.path.join(kit, rel)
         if not os.path.isfile(p):
