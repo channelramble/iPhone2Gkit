@@ -155,6 +155,22 @@ class SetupDownloadTests(unittest.TestCase):
                 L.fetch_kit()
         self.network.assert_not_called()
 
+    def test_cancellation_at_pointer_publication_cannot_delete_the_active_version(self):
+        original_replace = L.os.replace
+        def interrupt_after_publication(source, destination):
+            original_replace(source, destination)
+            if Path(destination).name == "kit-assets":
+                raise KeyboardInterrupt
+        with patch.object(L.os, "replace", side_effect=interrupt_after_publication):
+            with self.assertRaises(KeyboardInterrupt):
+                L.fetch_kit()
+        active = self.root / "data/kit-assets"
+        self.assertTrue(active.is_dir())
+        self.assertTrue(L._verified_tree(active, self.record))
+        self.network.reset_mock()
+        L.fetch_kit()
+        self.network.assert_not_called()
+
 
 class ManifestTests(unittest.TestCase):
     def test_packaged_manifest_has_only_relative_paths_and_matches_expanded_size(self):

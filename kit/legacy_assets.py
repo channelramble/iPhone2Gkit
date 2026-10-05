@@ -169,8 +169,12 @@ def fetch_kit(progress=lambda *args: None):
                     link.unlink()
                 if staging.exists():
                     shutil.rmtree(staging)
-                if published is not None:
-                    shutil.rmtree(published)
+                if published is not None and published.exists():
+                    # SIGINT can arrive immediately after replacing the pointer,
+                    # before the assignment above. Never delete its live target.
+                    owns_active = active.is_symlink() and active.resolve() == published.resolve()
+                    if not owns_active:
+                        shutil.rmtree(published)
         progress("kit", record["size"], record["size"])
         assets.import_plutil(active)
     from . import payloads

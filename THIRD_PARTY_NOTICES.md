@@ -28,8 +28,11 @@ glibc, display server and desktop infrastructure are supplied by the host OS.
 Apple IPSWs and extracted Apple kernels are **not** included in the public Git
 repository or public release packages. The integrated downloader obtains a
 selected stock IPSW locally and verifies its fixed SHA-256 before use. Those
-firmwares remain Apple's software. Historical iLiberty/app packs and the phone
-plist converter are imported from the user's existing kit; their presence does
-not imply an open-source license or permission to relicense them. ROMs, BIOS
+firmwares remain Apple's software. The separately downloaded historical setup
+bundle contains iLiberty's base ramdisk/activation payload, its original phone
+plist converter and the catalogued app/helper packs. These components retain
+their original authorship and licenses and are not relicensed under MIT; the
+catalog and in-app era labels identify their source and verification status.
+An existing kit can also be imported instead of using the setup download. ROMs, BIOS
 images, pairing records, SSH keys and personal phone data are never release
 assets.
