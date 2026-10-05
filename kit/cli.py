@@ -501,8 +501,12 @@ def cmd_restore_info(args):
 def cmd_fetch_firmware(args):
     def progress(version, count, total):
         emit("download", version=version, pct=round(count * 100 / total, 1))
-    results = [A.fetch_firmware(version, progress) for version in
-               ([f["version"] for f in R.catalog()] if args.target == "all" else [args.target])]
+    versions = [f["version"] for f in R.catalog()] if args.target == "all" else [args.target]
+    # Experimental 1.x requires a verified local recovery IPSW before erasure.
+    # Downloads are host-only and never launch a restore.
+    if args.target.startswith("1."):
+        A.fetch_firmware("3.1.3", progress)
+    results = [A.fetch_firmware(version, progress) for version in versions]
     if args.import_kit:
         A.import_plutil(args.import_kit)
     print(json.dumps(results if args.target == "all" else results[0]))

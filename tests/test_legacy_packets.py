@@ -1,11 +1,13 @@
 """Exercise the built legacy command function with a simulated USB receiver."""
 import os
+import sys
 import shutil
 import subprocess
 import tempfile
 import unittest
 
 SOURCE = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                      "linux/vendor/build/libirecovery-1.3.1/src/libirecovery.c" if sys.platform.startswith("linux") else
                       "macos/vendor/build/libirecovery-1.3.1/src/libirecovery.c")
 
 

@@ -32,7 +32,8 @@ EXPERIMENTAL_WARNING = (
     "Native iPhone OS 1.x restores are experimental and have not been tested "
     "on a phone with this build. The bundled backend implements the legacy "
     "protocol, but a failure may leave a partially restored phone in DFU/recovery. "
-    "The stock 3.1.3 IPSW is included for recovery."
+    "Keep verified stock 3.1.3 downloaded locally for recovery; it is not "
+    "bundled in the public package."
 )
 CUSTOM_WARNING = (
     "A custom IPSW can change the bootloader, radio firmware, and activation. "
@@ -314,6 +315,12 @@ def prepare(target, kit=None, custom_path=None, nand_id=None):
     if record and (metadata["sha256"] != record["sha256"] or metadata["size"] != record["size"]
                    or metadata["version"] != record["version"] or metadata["build"] != record["build"]):
         raise RestoreError("Bundled firmware integrity check failed: " + record["filename"])
+    if metadata["experimental"]:
+        recovery = next(f for f in catalog() if f["version"] == "3.1.3")
+        recovery_path = firmware_path(recovery, kit)
+        if recovery_path is None or recovery_path.stat().st_size != recovery["size"] or sha256(recovery_path) != recovery["sha256"]:
+            raise RestoreError("Download and verify stock 3.1.3 before an experimental 1.x restore, "
+                               "so a recovery IPSW is available locally if restoration fails.")
     # Selecting an unchanged stock IPSW through the picker does not need -c/pwnDFU.
     if custom:
         custom = not any(f["sha256"] == metadata["sha256"] for f in catalog())

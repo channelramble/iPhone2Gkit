@@ -1,4 +1,4 @@
-"""Bounded, read-only queries to macOS's existing USB multiplexing service.
+"""Bounded, read-only queries to the host's existing USB multiplexing service.
 
 Seeing a USB product ID does not establish that restored/lockdownd is reachable.
 This module reports those separate facts. It never launches/stops a daemon,
@@ -23,7 +23,7 @@ class MuxError(RuntimeError):
 def _timeout(sock, deadline):
     left = deadline - time.monotonic()
     if left <= 0:
-        raise MuxError("macOS USB service query timed out.")
+        raise MuxError("USB connection service query timed out.")
     sock.settimeout(left)
 
 
@@ -33,7 +33,7 @@ def _read(sock, count, deadline):
         _timeout(sock, deadline)
         chunk = sock.recv(count)
         if not chunk:
-            raise MuxError("macOS USB service closed an incomplete reply.")
+            raise MuxError("USB connection service closed an incomplete reply.")
         chunks.append(chunk)
         count -= len(chunk)
     return b"".join(chunks)
@@ -43,9 +43,9 @@ def _plist(data):
     try:
         value = plistlib.loads(data)
     except (ValueError, TypeError, OverflowError, plistlib.InvalidFileException, ExpatError) as e:
-        raise MuxError("macOS USB service returned an invalid plist.") from e
+        raise MuxError("USB connection service returned an invalid plist.") from e
     if not isinstance(value, dict):
-        raise MuxError("macOS USB service returned a non-dictionary plist.")
+        raise MuxError("USB connection service returned a non-dictionary plist.")
     return value
 
 
@@ -57,7 +57,7 @@ def _request(sock, message, deadline):
     sock.sendall(HEADER.pack(HEADER.size + len(data), 1, 8, 1) + data)
     length, version, kind, tag = HEADER.unpack(_read(sock, HEADER.size, deadline))
     if not HEADER.size < length <= MAX_REPLY or (version, kind, tag) != (1, 8, 1):
-        raise MuxError("macOS USB service returned an invalid message header.")
+        raise MuxError("USB connection service returned an invalid message header.")
     return _plist(_read(sock, length - HEADER.size, deadline))
 
 
@@ -68,11 +68,11 @@ def _uint(value, limit):
 def _devices(reply):
     records = reply.get("DeviceList")
     if not isinstance(records, list) or len(records) > 256:
-        raise MuxError("macOS USB service did not return a valid device list.")
+        raise MuxError("USB connection service did not return a valid device list.")
     devices, handles = [], set()
     for record in records:
         if not isinstance(record, dict) or not isinstance(record.get("Properties"), dict):
-            raise MuxError("macOS USB service returned an invalid device record.")
+            raise MuxError("USB connection service returned an invalid device record.")
         properties = record["Properties"]
         # Old daemon versions omit ConnectionType and enumerate only USB.
         if properties.get("ConnectionType", "USB") != "USB":
@@ -80,11 +80,11 @@ def _devices(reply):
         handle = record.get("DeviceID")
         pid = properties.get("ProductID")
         if not _uint(handle, 0xFFFFFFFF) or not handle or not _uint(pid, 0xFFFF) or handle in handles:
-            raise MuxError("macOS USB service returned invalid or duplicate device identifiers.")
+            raise MuxError("USB connection service returned invalid or duplicate device identifiers.")
         handles.add(handle)
         serial = properties.get("SerialNumber")
         if serial is not None and (not isinstance(serial, str) or not 0 < len(serial) <= 128):
-            raise MuxError("macOS USB service returned an invalid device serial.")
+            raise MuxError("USB connection service returned an invalid device serial.")
         devices.append({"device_id": handle, "pid": pid, "usb_serial": serial})
     return devices
 
@@ -98,7 +98,7 @@ def list_devices(timeout=2, socket_path=SOCKET_PATH):
             sock.connect(socket_path)
             return _devices(_request(sock, {"MessageType": "ListDevices"}, deadline))
     except (OSError, TimeoutError) as e:
-        raise MuxError("Cannot query macOS USB connection service: %s" % e) from e
+        raise MuxError("Cannot query Host USB connection service: %s" % e) from e
 
 
 def query_service(device_id, timeout=3, socket_path=SOCKET_PATH):
@@ -159,10 +159,10 @@ def assess(inventory, devices, error=None):
         if serial:
             candidates = [d for d in candidates if d["usb_serial"] == serial]
         if len(candidates) == 1:
-            report.update(status="visible", message="macOS USB connection service lists the phone.",
+            report.update(status="visible", message="Host USB connection service lists the phone.",
                           visible=True, device_id=candidates[0]["device_id"])
         else:
-            report.update(status="not_visible", message="The phone is physically connected, but macOS USB connection service cannot identify it.",
+            report.update(status="not_visible", message="The phone is physically connected, but Host USB connection service cannot identify it.",
                           detail="Normal-mode USB identity/SSH is unavailable through this service. This is not a cable-size problem. Recovery/DFU communication is separate; its restore-mode service still needs testing.")
     return report
 
@@ -184,5 +184,5 @@ def check(inventory, probe_service=False):
                 report["message"] = "The phone's normal-mode service responds over USB."
         except MuxError as e:
             report["phone_query_error"] = str(e)
-            report["message"] = "macOS lists the phone, but its USB service did not answer."
+            report["message"] = "The host lists the phone, but its USB service did not answer."
     return report

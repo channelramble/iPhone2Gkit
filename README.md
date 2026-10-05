@@ -173,7 +173,8 @@ endpoints, bulk endpoint 0x05 with 16 KB file chunks, and the legacy file
 completion sequence. The engine uploads the ramdisk at 0x09990000 first,
 then the signed stock 1.0 kernel at 0x09000000. Boot arguments specify the
 actual disk size. The old iLiberty kernel does not load on this bootloader.
-The stock kernel is bundled with a pinned SHA-256.
+The stock kernel is extracted locally from the verified 1.0 IPSW and checked
+against a pinned SHA-256.
 
 ## Activation and apps (the existing ios1kit engine)
 
@@ -208,17 +209,19 @@ failures, the bundled legacy console reader retrieves those values using
 `printenv`, so the Mac can show the current run's failed step. Recovery idle
 shutdown is disabled during a run and restored on success or Exit recovery.
 
-## The app (easiest): everything built in
+## The macOS app
 
-`dist/iPhone2Gkit.app` (download: `iPhone2Gkit.zip`) is self-contained. You don't need Homebrew, Python, Xcode or the kit folder. Unzip it and open it. The first time, right-click it and choose **Open**: it is built locally and ad-hoc signed. It needs an Apple Silicon Mac running macOS 13 or later.
+`dist/iPhone2Gkit.app` (download: `iPhone2Gkit-macos-arm64.zip`) carries its own
+Python and native programs. Unzip it and open it. The first time, right-click
+and choose **Open**: it is ad-hoc signed, without Developer ID notarization.
+It needs an Apple Silicon Mac running macOS 13 or later. Firmware is downloaded
+in the app and historical app packs are imported from your existing kit.
 
 | Inside `iPhone2Gkit.app/Contents/Resources` | |
 |---|---|
-| `engine/` | the ios1kit engine and signed stock 1.0 kernel |
+| `engine/` | the shared Python engine and installation scripts |
 | `python/` | private Python 3.12 (python-build-standalone 20261003, stdlib only, SHA-256 pinned) |
 | `bin/` | patched static libirecovery 1.3.1, a legacy console reader and the Terminal launcher; linked only to macOS system libraries |
-| `kit-assets/` | iLiberty's kernel and ramdisk, the 1.0 activation lockdownd, and all 48 app packs with the catalog. They are checked against the pinned SHA-256s on every run |
-| `firmware/` | Four complete stock IPSWs, SHA-256 checked before restoration |
 | `ThirdPartySources/`, `ThirdPartyLicenses/` | Corresponding native restore sources, build recipes, patches, license texts |
 
 Besides these, the app runs only macOS's own `hdiutil`, `ditto`, `ioreg` and `ssh-keygen`. Its PATH is limited to its own `bin/` and the system folders, so nothing installed elsewhere is used by accident. Ramdisks are built in `~/Library/Caches/ios1kit/build`; the OpenSSH host key lives in `~/.ios1kit/`.
@@ -227,7 +230,7 @@ Besides these, the app runs only macOS's own `hdiutil`, `ditto`, `ioreg` and `ss
 
 **The window:**
 - **iPhone panel.** A live status light: not connected, recovery mode, or iPhone OS running.
-- **Setup panel.** Shows the built-in kit and USB tool. **Use Other Kit…** points it at a different kit folder.
+- **Setup panel.** Shows the imported kit and built-in USB tool. **Use Other Kit…** points it at your historical kit folder.
 - **Actions:**
   - **1. Check phone** runs `probe`.
   - **2. Install** installs activation plus the apps ticked on the right.
@@ -237,7 +240,28 @@ Besides these, the app runs only macOS's own `hdiutil`, `ditto`, `ioreg` and `ss
 - **App list.** Every app with its size, plus **All apps** / **None** buttons.
 - **Bottom pane.** What's happening now, recovery-mode instructions when they're needed, an upload progress bar and the full log.
 
-**Rebuilding the app:** `macos/build-app.sh [KIT_FOLDER]` needs Xcode/CLT plus pkgconf, autoconf, automake, libtool, cmake, and perl as build tools. `fetch-deps.sh` and `fetch-restore-deps.sh` download fixed-checksum sources and compile the private native tools; `fetch-firmware.py` collects the fixed-checksum IPSWs. Build tools are not runtime dependencies. The signed bundle passes clean-PATH checks for the app engine, all restore programs, kit assets, and all four stock firmwares.
+**Rebuilding the public app:** `macos/build-app.sh --public` needs Xcode/CLT plus
+pkgconf, autoconf, automake, libtool, cmake and perl as build tools. The fetch
+scripts use pinned-checksum sources to build the private native tools. Build
+tools are not runtime dependencies. The signed public bundle passes clean-PATH
+checks for the engine and restore programs, and contains no Apple firmware.
+The private build mode `macos/build-app.sh KIT_FOLDER` is for local historical-kit
+testing and is not the public release recipe.
+
+## Linux app and CLI
+
+Extract `iPhone2Gkit-linux-x86_64.tar.gz`, then run `./iPhone2Gkit/iphone2gkit`.
+With arguments, the same launcher runs the CLI, for example
+`./iPhone2Gkit/iphone2gkit restore-info`. It uses its private Python/Tk runtime,
+patched USB/restore tools and rootless HFS+ image editor. USB permissions and
+service setup are documented in [linux/README.md](linux/README.md). The setup
+helper does not disable or replace an installed daemon.
+
+Build on Ubuntu 22.04+ with `bash linux/build-linux.sh --public`; run
+`bash linux/test-linux.sh` to exercise the packaged CLI and GUI under Xvfb.
+The GitHub Actions workflow builds and tests Linux before publishing artifacts.
+Tests do not perform a physical phone restore. Both platforms require explicit
+erasure/model acknowledgments, preserve logs and avoid automatic retry erasures.
 
 ## Command line (alternative)
 

@@ -26,12 +26,13 @@ import re
 # The flash driver's own message (primary). Exactly 0x + up to 8 hex, and the
 # token must not run into more hex digits (so it can't grab a prefix of a longer
 # address). Case-insensitive.
-_NOT_SUPPORTED = re.compile(r"NAND\s+device\s+ID\s+(0x[0-9A-Fa-f]{1,8})(?![0-9A-Fa-f])", re.IGNORECASE)
-# Fallback: a line that clearly names NAND *and* an id/chip, carrying one 32-bit
-# token bounded on both sides so longer hex (addresses) is not truncated to 8.
-_LINE_HEX = re.compile(r"(?<![0-9A-Fa-fx])(0x[0-9A-Fa-f]{6,8})(?![0-9A-Fa-f])")
-_NAND_HINT = re.compile(r"\bnand", re.IGNORECASE)          # nand, nand0, NAND:
-_ID_HINT = re.compile(r"\b(id|chip|chipid|device)\b", re.IGNORECASE)
+_NOT_SUPPORTED = re.compile(r"\bNAND\s+device\s+ID\s*[:=]?\s*(0x[0-9A-Fa-f]{1,8})(?![0-9A-Za-z])", re.IGNORECASE)
+# Require an explicit field directly before the token. "NAND device mapped at
+# 0x..." and region addresses are not NAND-ID evidence, even if their numeric
+# value happens to be in a known firmware's table.
+_EXPLICIT_ID = re.compile(
+    r"\bnand(?:\d+)?\s*:?\s*(?:found\s+)?(?:chip\s+id|chipid|id)\s*[:=]?\s*"
+    r"(0x[0-9A-Fa-f]{1,8})(?![0-9A-Za-z])", re.IGNORECASE)
 
 
 def _norm(hexstr):
@@ -55,20 +56,11 @@ def parse_nand_id(text):
     if not text:
         return None
     found = set()
-    for m in _NOT_SUPPORTED.finditer(text):
-        n = _norm(m.group(1))
-        if n:
-            found.add(n)
-    if not found:
-        for line in text.splitlines():
-            if not _NAND_HINT.search(line):
-                continue
-            if not (_ID_HINT.search(line) or "not supported" in line.lower()):
-                continue
-            for hx in _LINE_HEX.findall(line):
-                n = _norm(hx)
-                if n:
-                    found.add(n)
+    for pattern in (_NOT_SUPPORTED, _EXPLICIT_ID):
+        for m in pattern.finditer(text):
+            n = _norm(m.group(1))
+            if n:
+                found.add(n)
     if len(found) == 1:
         return next(iter(found))
     return None  # nothing found, or conflicting IDs

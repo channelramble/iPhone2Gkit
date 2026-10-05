@@ -15,11 +15,11 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ARCHIVE = ROOT / "macos/vendor/restore/src/idevicerestore-c25aefd.tar.gz"
+ARCHIVE = ROOT / ("linux/vendor/src/idevicerestore-c25aefd.tar.gz" if sys.platform.startswith("linux") else "macos/vendor/restore/src/idevicerestore-c25aefd.tar.gz")
 ARCHIVE_SHA256 = "266e1f444d97fcdd78227eba8c4b252803ef3680d3ad6c1a3e5f286fce96ac29"
 SOURCE_ROOT = "idevicerestore-c25aefd49b3769c2907875e15566d433d59bd979"
 PATCH = ROOT / "macos/restore-build.patch"
-PREFIX = ROOT / "macos/vendor/build/prefix"
+PREFIX = ROOT / ("linux/vendor/prefix" if sys.platform.startswith("linux") else "macos/vendor/build/prefix")
 
 PREAMBLE = r'''
 #include <stdio.h>
@@ -107,10 +107,10 @@ class NativeRestoreIdentityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         compiler, patch_tool = shutil.which("clang"), shutil.which("patch")
-        library = PREFIX / "lib/libplist-2.0.a"
+        library = PREFIX / ("lib/libplist-2.0.so" if sys.platform.startswith("linux") else "lib/libplist-2.0.a")
         header = PREFIX / "include/plist/plist.h"
-        if sys.platform != "darwin" or not compiler or not patch_tool:
-            raise unittest.SkipTest("native restore identity checks require macOS, clang and patch")
+        if not compiler or not patch_tool:
+            raise unittest.SkipTest("native restore identity checks require clang and patch")
         if not all(path.is_file() for path in (ARCHIVE, PATCH, library, header)):
             raise unittest.SkipTest("run macos/fetch-deps.sh and macos/fetch-restore-deps.sh first")
         if hashlib.sha256(ARCHIVE.read_bytes()).hexdigest() != ARCHIVE_SHA256:
@@ -141,7 +141,8 @@ class NativeRestoreIdentityTests(unittest.TestCase):
         function = source[start:end]
         cls.executable = work / "restore-identity-check"
         built = subprocess.run(
-            [compiler, "-x", "c", "-O2", "-mmacosx-version-min=13.0",
+            [compiler, "-x", "c", "-O2"] +
+            (["-Wl,-rpath," + str(PREFIX / "lib")] if sys.platform.startswith("linux") else ["-mmacosx-version-min=13.0"]) + [
              "-I", str(PREFIX / "include"), "-o", str(cls.executable),
              "-", "-x", "none", str(library)],
             input=PREAMBLE + function + MAIN, text=True, capture_output=True, timeout=30,

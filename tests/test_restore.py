@@ -110,6 +110,22 @@ class RestoreGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(R.RestoreError, "unknown"):
                 R.prepare("auto")
 
+    def test_experimental_plan_requires_verified_local_recovery_firmware(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "one.ipsw"
+            path.write_bytes(b"fixture")
+            record = {"version": "1.0", "filename": "one.ipsw", "sha256": R.sha256(path), "size": 7,
+                      "build": "1A543a"}
+            recovery = dict(record, version="3.1.3", filename="recovery.ipsw")
+            metadata = dict(record, path=str(path), experimental=True)
+            with patch.object(R, "catalog", return_value=[record, recovery]), \
+                 patch.object(R, "device_identity", return_value=IDENTITY), \
+                 patch.object(R, "firmware_path", side_effect=lambda r, kit=None: path if r["version"] == "1.0" else None), \
+                 patch.object(R, "inspect_ipsw", return_value=metadata), patch.object(R, "supervise") as backend:
+                with self.assertRaisesRegex(R.RestoreError, "Download and verify stock 3.1.3"):
+                    R.prepare("1.0")
+                backend.assert_not_called()
+
     def test_readonly_identity_uses_simple_lockdown_for_every_query(self):
         normal = dict(IDENTITY, mode="normal")
         seen = []

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Resolve symlinks so the launcher can also be linked into ~/.local/bin.
+set -eu
+SELF="$(readlink -f "$0")"
+APP="$(dirname "$SELF")"
+R="$APP/resources"
+[ -x "$R/python/bin/python3" ] || { echo 'Private Python is missing. Extract the whole iPhone2Gkit folder.' >&2; exit 2; }
+unset PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE LD_PRELOAD
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONNOUSERSITE=1
+export PATH="$R/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export LD_LIBRARY_PATH="$R/lib:$R/python/lib"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}"
+case "$CACHE" in /*) ;; *) CACHE="$HOME/.cache" ;; esac
+export IOS1KIT_BUILD="${IOS1KIT_BUILD:-$CACHE/iPhone2Gkit/build}"
+if [ "$#" = 0 ]; then
+    exec "$R/python/bin/python3" -B "$APP/gui.py" --resources "$R"
+fi
+if [ "$1" = --gui-smoke-test ]; then
+    shift
+    exec "$R/python/bin/python3" -B "$APP/gui.py" --resources "$R" --smoke-test "$@"
+fi
+exec "$R/python/bin/python3" -B "$R/engine/ios1kit" "$@"

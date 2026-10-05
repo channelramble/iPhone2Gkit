@@ -30,6 +30,14 @@ class ParseTests(unittest.TestCase):
     def test_nand_line_without_id_hint_is_ignored(self):
         self.assertIsNone(N.parse_nand_id("nand driver started at 0x80001000"))
 
+    def test_nand_device_address_is_not_a_chip_id(self):
+        for text in ("NAND device mapped at 0x2555D5EC", "nand0: chip mapped at 0xB655D7EC", "nand region id 0x2555D5EC mapped"):
+            self.assertIsNone(N.parse_nand_id(text))
+
+    def test_conflict_across_supported_field_formats_remains_unknown(self):
+        text = "NAND device ID 0x2555D5EC not supported\nnand0: chip id 0x3E94D589"
+        self.assertIsNone(N.parse_nand_id(text))
+
     def test_none_and_empty(self):
         self.assertIsNone(N.parse_nand_id(""))
         self.assertIsNone(N.parse_nand_id(None))
