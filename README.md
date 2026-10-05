@@ -212,8 +212,10 @@ shutdown is disabled during a run and restored on success or Exit recovery.
 ## The macOS app
 
 `dist/iPhone2Gkit.app` (download: `iPhone2Gkit-macos-arm64.zip`) carries its own
-Python and native programs. Unzip it and open it. The first time, right-click
-and choose **Open**: it is ad-hoc signed, without Developer ID notarization.
+Python and native programs. Unzip it and open it. It is ad-hoc signed, without
+Developer ID notarization. If macOS blocks the first launch, review the app in
+**System Settings → Privacy & Security → Open Anyway**. On macOS 15 or later,
+Control-click no longer overrides this check; see [Apple's opening guidance](https://support.apple.com/en-us/102445).
 It needs an Apple Silicon Mac running macOS 13 or later. Firmware is downloaded
 in the app and historical app packs are imported from your existing kit.
 
